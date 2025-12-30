@@ -11,9 +11,9 @@ class ASRConfig(BaseSettings):
     
     
 class TTSConfig(BaseSettings):
-    acoustic_model: str = 'nvidia/tts_en_fastpitch'
-    vocoder_model: str = 'nvidia/tts_hifigan'
-    sample_rate: int = 22050
+    acoustic_model: str = 'tts_en_fastpitch_multispeaker'
+    vocoder_model: str = 'tts_en_hifitts_hifigan_ft_fastpitch'
+    sample_rate: int = 44100
     device: str = 'cuda'
     
 
