@@ -27,7 +27,12 @@ class SimpleFastConformerStreamer:
         self.chunk_size = int(self.sample_rate * chunk_size_ms / 1000)
         
         print(f'Loading FastConformer on {self.device}...')
-        self.asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+        
+        if model_name.endswith('.nemo'):
+            self.asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=model_name)
+        else:
+            self.asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+        
         self.asr_model.change_decoding_strategy(decoder_type='rnnt')
         
         left_context = self.asr_model.encoder.att_context_size[0]

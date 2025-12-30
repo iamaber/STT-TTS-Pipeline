@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class ASRConfig(BaseSettings):
-    model_name: str = 'nvidia/stt_en_fastconformer_hybrid_large_streaming_multi'
+    model_name: str = 'models/asr/fastconformer.nemo'
     sample_rate: int = 16000
     chunk_size_ms: int = 80
     streaming: bool = True
@@ -11,8 +11,8 @@ class ASRConfig(BaseSettings):
     
     
 class TTSConfig(BaseSettings):
-    acoustic_model: str = 'tts_en_fastpitch_multispeaker'
-    vocoder_model: str = 'tts_en_hifitts_hifigan_ft_fastpitch'
+    acoustic_model: str = 'models/tts_acoustic/fastpitch.nemo'
+    vocoder_model: str = 'models/tts_vocoder/hifigan.nemo'
     sample_rate: int = 44100
     device: str = 'cuda'
     

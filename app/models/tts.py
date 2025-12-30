@@ -16,11 +16,19 @@ class TTS:
         if verbose:
             print('Loading TTS models...')
         
-        self.fastpitch = FastPitchModel.from_pretrained(acoustic_model)
+        if acoustic_model.endswith('.nemo'):
+            self.fastpitch = FastPitchModel.restore_from(restore_path=acoustic_model)
+        else:
+            self.fastpitch = FastPitchModel.from_pretrained(acoustic_model)
+        
         self.fastpitch = self.fastpitch.to(self.device)
         self.fastpitch.eval()
         
-        self.hifigan = HifiGanModel.from_pretrained(vocoder_model)
+        if vocoder_model.endswith('.nemo'):
+            self.hifigan = HifiGanModel.restore_from(restore_path=vocoder_model)
+        else:
+            self.hifigan = HifiGanModel.from_pretrained(vocoder_model)
+        
         self.hifigan = self.hifigan.to(self.device)
         self.hifigan.eval()
         
