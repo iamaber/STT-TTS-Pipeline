@@ -5,7 +5,10 @@ from typing import Tuple
 
 
 def load_audio(file_path: str, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
-    audio, sr = sf.read(file_path)
+    try:
+        audio, sr = sf.read(file_path)
+    except:
+        audio, sr = librosa.load(file_path, sr=None)
     
     if sr != target_sr:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
