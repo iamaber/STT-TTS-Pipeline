@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+
+# NeMo cache and models
+.nemo/
+nemo_experiments/
+*.nemo
+
+# Audio files (for testing)
+*.wav
+*.mp3
+*.flac
+!sample.wav
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output files
+output/
+results/
