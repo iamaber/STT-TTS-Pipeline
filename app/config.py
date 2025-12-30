@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class ASRConfig(BaseSettings):
-    model_name: str = 'nvidia/parakeet-rnnt-1.1b'
+    model_name: str = 'nvidia/stt_en_fastconformer_hybrid_large_streaming_multi'
     sample_rate: int = 16000
     chunk_size_ms: int = 80
     streaming: bool = True
