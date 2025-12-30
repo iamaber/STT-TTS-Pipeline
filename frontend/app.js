@@ -44,6 +44,8 @@ synthesizeBtn.addEventListener('click', async () => {
     }
 });
 
+let sessionStartTime = null;
+
 streamStartBtn.addEventListener('click', async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -56,11 +58,14 @@ streamStartBtn.addEventListener('click', async () => {
         });
         
         audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        streamingWs = new WebSocket(`${WS_URL}/ws/stream`);
+        sessionStartTime = Date.now() / 1000;
+        
+        const wsUrl = `ws://${window.location.host}/ws/stream`;
+        streamingWs = new WebSocket(wsUrl);
         
         streamingWs.onopen = () => {
-            streamStatus.textContent = 'Streaming active - Speak now!';
-            streamStatus.className = 'stream-status active';
+            streamStatus.textContent = 'Status: Streaming...';
+            streamStatus.style.color = '#4caf50';
             streamStartBtn.disabled = true;
             streamStopBtn.disabled = false;
             setStatus('Streaming...', 'recording');
@@ -70,13 +75,17 @@ streamStartBtn.addEventListener('click', async () => {
             const data = JSON.parse(event.data);
             
             if (data.type === 'transcription') {
-                const timestamp = new Date().toLocaleTimeString();
+                const segment = data.segment;
+                const relativeStart = (segment.start - sessionStartTime).toFixed(2);
+                const relativeEnd = (segment.end - sessionStartTime).toFixed(2);
+                
                 const transcriptDiv = document.createElement('div');
                 transcriptDiv.style.padding = '8px';
                 transcriptDiv.style.marginBottom = '5px';
                 transcriptDiv.style.background = '#e8f5e9';
                 transcriptDiv.style.borderRadius = '4px';
-                transcriptDiv.innerHTML = `<strong>[${timestamp}]</strong> ${data.text}`;
+                transcriptDiv.style.fontFamily = 'monospace';
+                transcriptDiv.innerHTML = `${relativeStart.padStart(6, ' ')} ${relativeEnd.padStart(6, ' ')} ${segment.text}`;
                 streamTranscription.appendChild(transcriptDiv);
                 streamTranscription.scrollTop = streamTranscription.scrollHeight;
             } else if (data.type === 'audio') {

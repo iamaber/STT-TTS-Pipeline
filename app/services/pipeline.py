@@ -1,21 +1,22 @@
-import numpy as np
 from typing import Optional
 from app.models.vad import SileroVAD
 from app.models.asr import ASRModel
 from app.models.tts import TTSModel
 from app.config import settings
+import numpy as np
 
 
 class Pipeline:
     def __init__(self):
+        print('Initializing pipeline...')
+        
         self.vad = SileroVAD(
             threshold=settings.vad.threshold,
-            min_speech_duration_ms=settings.vad.min_speech_duration_ms,
-            min_silence_duration_ms=settings.vad.min_silence_duration_ms
+            sample_rate=settings.asr.sample_rate
         )
         
         self.asr = ASRModel(
-            model_name=settings.asr.model_name,
+            model_path=settings.asr.model_name,
             device=settings.asr.device
         )
         
