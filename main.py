@@ -1,8 +1,20 @@
 from fastapi import FastAPI, WebSocket, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.services.pipeline import Pipeline
 from app.api import http, websocket
 
 app = FastAPI(title='STT-TTS Pipeline', version='0.1.0')
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
+app.mount('/frontend', StaticFiles(directory='frontend'), name='frontend')
 
 pipeline = None
 
@@ -18,6 +30,7 @@ async def root():
     return {
         'message': 'STT-TTS Pipeline API',
         'version': '0.1.0',
+        'frontend': 'http://localhost:8000/frontend/index.html',
         'endpoints': {
             'transcribe': '/transcribe',
             'synthesize': '/synthesize',
