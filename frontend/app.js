@@ -5,10 +5,6 @@ const synthesizeBtn = document.getElementById('synthesizeBtn');
 const textInput = document.getElementById('textInput');
 const speakerSelect = document.getElementById('speakerSelect');
 const audioPlayer = document.getElementById('audioPlayer');
-const pipelineBtn = document.getElementById('pipelineBtn');
-const audioFile = document.getElementById('audioFile');
-const pipelineTranscription = document.getElementById('pipelineTranscription');
-const pipelineAudio = document.getElementById('pipelineAudio');
 const statusDiv = document.getElementById('status');
 const streamStartBtn = document.getElementById('streamStartBtn');
 const streamStopBtn = document.getElementById('streamStopBtn');
@@ -48,32 +44,6 @@ synthesizeBtn.addEventListener('click', async () => {
     }
 });
 
-pipelineBtn.addEventListener('click', async () => {
-    const file = audioFile.files[0];
-    if (!file) {
-        setStatus('Please select an audio file', 'error');
-        return;
-    }
-
-    try {
-        setStatus('Processing pipeline...', 'processing');
-        const formData = new FormData();
-        formData.append('file', file);
-        const speaker = speakerSelect.value;
-
-        const response = await fetch(`${API_URL}/pipeline?speaker=${speaker}`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await response.json();
-        pipelineTranscription.textContent = data.transcription || 'No speech detected';
-        setStatus('Pipeline complete', 'success');
-    } catch (error) {
-        setStatus('Pipeline failed: ' + error.message, 'error');
-    }
-});
-
 streamStartBtn.addEventListener('click', async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -99,7 +69,27 @@ streamStartBtn.addEventListener('click', async () => {
         streamingWs.onmessage = async (event) => {
             const data = JSON.parse(event.data);
             
-            if (data.type === 'transcription') {
+            if (data.type === 'partial_transcription') {
+                const lastDiv = streamTranscription.lastElementChild;
+                if (lastDiv && lastDiv.classList.contains('partial')) {
+                    lastDiv.innerHTML = `<em>${data.text}</em>`;
+                } else {
+                    const partialDiv = document.createElement('div');
+                    partialDiv.className = 'partial';
+                    partialDiv.style.padding = '8px';
+                    partialDiv.style.marginBottom = '5px';
+                    partialDiv.style.background = '#fff3e0';
+                    partialDiv.style.borderRadius = '4px';
+                    partialDiv.innerHTML = `<em>${data.text}</em>`;
+                    streamTranscription.appendChild(partialDiv);
+                }
+                streamTranscription.scrollTop = streamTranscription.scrollHeight;
+            } else if (data.type === 'transcription') {
+                const lastDiv = streamTranscription.lastElementChild;
+                if (lastDiv && lastDiv.classList.contains('partial')) {
+                    lastDiv.remove();
+                }
+                
                 const timestamp = new Date().toLocaleTimeString();
                 const transcriptDiv = document.createElement('div');
                 transcriptDiv.style.padding = '8px';
