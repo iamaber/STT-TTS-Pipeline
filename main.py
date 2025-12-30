@@ -58,3 +58,8 @@ async def full_pipeline(file: UploadFile = File(...), speaker: int = None):
 @app.websocket('/ws')
 async def websocket_endpoint(ws: WebSocket):
     await websocket.handle_websocket(ws, pipeline)
+
+
+@app.websocket('/ws/stream')
+async def streaming_pipeline_endpoint(ws: WebSocket):
+    await websocket.handle_streaming_pipeline(ws, pipeline)
