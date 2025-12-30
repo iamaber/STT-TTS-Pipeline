@@ -27,11 +27,8 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
     await websocket.accept()
     
     audio_buffer = []
-    current_sentence = ''
     last_speech_time = time.time()
-    silence_threshold = 0.8
-    min_audio_length = 8000
-    chunk_counter = 0
+    silence_threshold = 1.5
     
     try:
         while True:
@@ -42,30 +39,15 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                 audio_bytes = base64.b64decode(data['audio'])
                 audio_float = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
                 
-                is_speech = pipeline.vad.is_speech(audio_float, threshold=0.3)
+                is_speech = pipeline.vad.is_speech(audio_float, threshold=0.5)
                 
                 if is_speech:
                     last_speech_time = time.time()
                     audio_buffer.append(audio_float)
-                    chunk_counter += 1
-                    
-                    if chunk_counter % 10 == 0 and len(audio_buffer) > 0:
-                        combined_audio = np.concatenate(audio_buffer)
-                        
-                        if len(combined_audio) >= min_audio_length:
-                            transcription = pipeline.asr.transcribe_audio(combined_audio)
-                            
-                            if transcription and transcription != current_sentence:
-                                current_sentence = transcription
-                                
-                                await websocket.send_json({
-                                    'type': 'partial_transcription',
-                                    'text': current_sentence
-                                })
                 else:
                     silence_duration = time.time() - last_speech_time
                     
-                    if silence_duration > silence_threshold and current_sentence and len(audio_buffer) > 0:
+                    if silence_duration > silence_threshold and len(audio_buffer) > 0:
                         combined_audio = np.concatenate(audio_buffer)
                         final_transcription = pipeline.asr.transcribe_audio(combined_audio)
                         
@@ -85,8 +67,6 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                             })
                         
                         audio_buffer = []
-                        current_sentence = ''
-                        chunk_counter = 0
     
     except WebSocketDisconnect:
         pass

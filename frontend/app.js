@@ -69,27 +69,7 @@ streamStartBtn.addEventListener('click', async () => {
         streamingWs.onmessage = async (event) => {
             const data = JSON.parse(event.data);
             
-            if (data.type === 'partial_transcription') {
-                const lastDiv = streamTranscription.lastElementChild;
-                if (lastDiv && lastDiv.classList.contains('partial')) {
-                    lastDiv.innerHTML = `<em>${data.text}</em>`;
-                } else {
-                    const partialDiv = document.createElement('div');
-                    partialDiv.className = 'partial';
-                    partialDiv.style.padding = '8px';
-                    partialDiv.style.marginBottom = '5px';
-                    partialDiv.style.background = '#fff3e0';
-                    partialDiv.style.borderRadius = '4px';
-                    partialDiv.innerHTML = `<em>${data.text}</em>`;
-                    streamTranscription.appendChild(partialDiv);
-                }
-                streamTranscription.scrollTop = streamTranscription.scrollHeight;
-            } else if (data.type === 'transcription') {
-                const lastDiv = streamTranscription.lastElementChild;
-                if (lastDiv && lastDiv.classList.contains('partial')) {
-                    lastDiv.remove();
-                }
-                
+            if (data.type === 'transcription') {
                 const timestamp = new Date().toLocaleTimeString();
                 const transcriptDiv = document.createElement('div');
                 transcriptDiv.style.padding = '8px';
