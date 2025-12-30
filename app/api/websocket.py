@@ -3,6 +3,7 @@ import numpy as np
 import json
 import base64
 from app.config import settings
+import time
 
 
 async def handle_websocket(websocket: WebSocket, pipeline):
@@ -25,7 +26,12 @@ async def handle_websocket(websocket: WebSocket, pipeline):
 async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
     await websocket.accept()
     
-    pipeline.asr.reset()
+    audio_buffer = []
+    current_sentence = ''
+    last_speech_time = time.time()
+    silence_threshold = 0.8
+    min_audio_length = 8000
+    chunk_counter = 0
     
     try:
         while True:
@@ -34,26 +40,53 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
             
             if data.get('type') == 'audio':
                 audio_bytes = base64.b64decode(data['audio'])
+                audio_float = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
                 
-                pipeline.asr.feed_audio(audio_bytes)
+                is_speech = pipeline.vad.is_speech(audio_float, threshold=0.3)
                 
-                if pipeline.asr.should_transcribe():
-                    transcription = pipeline.asr.transcribe()
+                if is_speech:
+                    last_speech_time = time.time()
+                    audio_buffer.append(audio_float)
+                    chunk_counter += 1
                     
-                    if transcription:
-                        await websocket.send_json({
-                            'type': 'transcription',
-                            'text': transcription
-                        })
+                    if chunk_counter % 10 == 0 and len(audio_buffer) > 0:
+                        combined_audio = np.concatenate(audio_buffer)
                         
-                        tts_audio = pipeline.tts.synthesize(transcription)
+                        if len(combined_audio) >= min_audio_length:
+                            transcription = pipeline.asr.transcribe_audio(combined_audio)
+                            
+                            if transcription and transcription != current_sentence:
+                                current_sentence = transcription
+                                
+                                await websocket.send_json({
+                                    'type': 'partial_transcription',
+                                    'text': current_sentence
+                                })
+                else:
+                    silence_duration = time.time() - last_speech_time
+                    
+                    if silence_duration > silence_threshold and current_sentence and len(audio_buffer) > 0:
+                        combined_audio = np.concatenate(audio_buffer)
+                        final_transcription = pipeline.asr.transcribe_audio(combined_audio)
                         
-                        audio_b64 = base64.b64encode(tts_audio.tobytes()).decode('utf-8')
-                        await websocket.send_json({
-                            'type': 'audio',
-                            'audio': audio_b64,
-                            'sample_rate': settings.tts.sample_rate
-                        })
+                        if final_transcription:
+                            await websocket.send_json({
+                                'type': 'transcription',
+                                'text': final_transcription
+                            })
+                            
+                            tts_audio = pipeline.tts.synthesize(final_transcription)
+                            
+                            audio_b64 = base64.b64encode(tts_audio.tobytes()).decode('utf-8')
+                            await websocket.send_json({
+                                'type': 'audio',
+                                'audio': audio_b64,
+                                'sample_rate': settings.tts.sample_rate
+                            })
+                        
+                        audio_buffer = []
+                        current_sentence = ''
+                        chunk_counter = 0
     
     except WebSocketDisconnect:
-        pipeline.asr.reset()
+        pass
