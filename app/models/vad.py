@@ -12,45 +12,59 @@ class SileroVAD:
         self.min_speech_duration_ms = min_speech_duration_ms
         self.min_silence_duration_ms = min_silence_duration_ms
         self.sample_rate = sample_rate
+        self.window_size_samples = 512 if sample_rate == 16000 else 256
         
     def is_speech(self, audio: np.ndarray, threshold: float = None) -> bool:
         if threshold is None:
             threshold = self.threshold
         
-        chunk_size = 512 if self.sample_rate == 16000 else 256
-        
-        if len(audio) < chunk_size:
+        if len(audio) < self.window_size_samples:
             return False
         
-        num_chunks = len(audio) // chunk_size
-        speech_chunks = 0
+        num_windows = len(audio) // self.window_size_samples
+        speech_count = 0
         
-        for i in range(num_chunks):
-            chunk = audio[i * chunk_size:(i + 1) * chunk_size]
-            audio_tensor = torch.from_numpy(chunk).float()
+        for i in range(num_windows):
+            start = i * self.window_size_samples
+            end = start + self.window_size_samples
+            window = audio[start:end]
+            
+            audio_tensor = torch.from_numpy(window).float()
             
             with torch.no_grad():
                 speech_prob = self.model(audio_tensor, self.sample_rate).item()
             
             if speech_prob > threshold:
-                speech_chunks += 1
+                speech_count += 1
         
-        return speech_chunks > (num_chunks * 0.3)
+        return speech_count > 0
+    
+    def get_speech_probability(self, audio: np.ndarray) -> float:
+        if len(audio) < self.window_size_samples:
+            audio = np.pad(audio, (0, self.window_size_samples - len(audio)))
+        elif len(audio) > self.window_size_samples:
+            audio = audio[:self.window_size_samples]
+        
+        audio_tensor = torch.from_numpy(audio).float()
+        
+        with torch.no_grad():
+            speech_prob = self.model(audio_tensor, self.sample_rate).item()
+        
+        return speech_prob
     
     def detect_speech(self, audio: np.ndarray, threshold: float = None) -> List[Tuple[int, int]]:
         if threshold is None:
             threshold = self.threshold
         
-        chunk_size = 512 if self.sample_rate == 16000 else 256
-        hop_size = chunk_size // 2
+        hop_size = self.window_size_samples // 2
         
         speech_segments = []
         in_speech = False
         speech_start = 0
         
-        for i in range(0, len(audio) - chunk_size, hop_size):
-            chunk = audio[i:i + chunk_size]
-            audio_tensor = torch.from_numpy(chunk).float()
+        for i in range(0, len(audio) - self.window_size_samples, hop_size):
+            window = audio[i:i + self.window_size_samples]
+            audio_tensor = torch.from_numpy(window).float()
             
             with torch.no_grad():
                 speech_prob = self.model(audio_tensor, self.sample_rate).item()
