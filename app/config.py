@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class ASRConfig(BaseSettings):
-    model_name: str = 'models/asr/fastconformer.nemo'
+    model_name: str = 'models/asr/parakeet_tdt_0.6b_v2.nemo'
     sample_rate: int = 16000
     chunk_size_ms: int = 80
     streaming: bool = True
