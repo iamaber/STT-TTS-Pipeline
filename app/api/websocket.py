@@ -29,6 +29,7 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
     audio_buffer = []
     last_speech_time = time.time()
     silence_threshold = 1.5
+    segment_start_time = None
     
     try:
         while True:
@@ -42,19 +43,29 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                 is_speech = pipeline.vad.is_speech(audio_float, threshold=0.5)
                 
                 if is_speech:
+                    if segment_start_time is None:
+                        segment_start_time = time.time()
                     last_speech_time = time.time()
                     audio_buffer.append(audio_float)
                 else:
                     silence_duration = time.time() - last_speech_time
                     
-                    if silence_duration > silence_threshold and len(audio_buffer) > 0:
+                    if silence_duration > silence_threshold and len(audio_buffer) > 0 and segment_start_time is not None:
+                        segment_end_time = last_speech_time
+                        
                         combined_audio = np.concatenate(audio_buffer)
                         final_transcription = pipeline.asr.transcribe_audio(combined_audio)
                         
                         if final_transcription:
+                            segment = {
+                                'start': segment_start_time,
+                                'end': segment_end_time,
+                                'text': final_transcription
+                            }
+                            
                             await websocket.send_json({
                                 'type': 'transcription',
-                                'text': final_transcription
+                                'segment': segment
                             })
                             
                             tts_audio = pipeline.tts.synthesize(final_transcription)
@@ -67,6 +78,7 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                             })
                         
                         audio_buffer = []
+                        segment_start_time = None
     
     except WebSocketDisconnect:
         pass
