@@ -12,7 +12,7 @@ class TTS:
                  device: str = 'cuda', verbose: bool = True):
         self.device = device if torch.cuda.is_available() else 'cpu'
         self.verbose = verbose
-        self.max_text_length = 100
+        self.max_text_length = 300
         
         if verbose:
             print('Loading TTS models...')
