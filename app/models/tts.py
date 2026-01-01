@@ -63,8 +63,13 @@ class TTS:
         
         return chunks if chunks else [text[:self.max_text_length]]
     
-    def generate(self, text: str, speaker: int = 92, pace: float = 1.0, 
+    def generate(self, text: str, speaker: int = None, pace: float = 1.0, 
                  output: Optional[str] = None):
+        # Use config default if speaker not specified
+        from app.config import settings
+        if speaker is None:
+            speaker = settings.tts.default_speaker_id
+        
         pace = max(0.1, min(2.0, pace))
         if speaker >= self.n_speakers:
             raise ValueError(f'Speaker {speaker} out of range (0-{self.n_speakers-1})')
