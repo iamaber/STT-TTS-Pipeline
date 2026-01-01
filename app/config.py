@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 
@@ -14,6 +15,7 @@ class TTSConfig(BaseSettings):
     vocoder_model: str = "models/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
     sample_rate: int = 44100
     device: str = "cuda"
+    default_speaker_id: int = 92  # Default TTS speaker (0-12799)
 
 
 class VADConfig(BaseSettings):
@@ -36,3 +38,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# API Request Models
+class STTTTSRequest(BaseModel):
+    audio: str
+    sample_rate: int = 16000
+    speaker: int = None
+
+
+class StreamingRequest(BaseModel):
+    session_id: str
+    audio: str
+    sample_rate: int = 16000
+    speaker: int = None
