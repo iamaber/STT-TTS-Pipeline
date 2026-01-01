@@ -7,16 +7,16 @@ from typing import Tuple
 def load_audio(file_path: str, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
     try:
         audio, sr = sf.read(file_path)
-    except:
+    except RuntimeError:
         audio, sr = librosa.load(file_path, sr=None)
-    
+
     if sr != target_sr:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
         sr = target_sr
-    
+
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
-    
+
     return audio, sr
 
 
@@ -31,13 +31,15 @@ def normalize_audio(audio: np.ndarray) -> np.ndarray:
     return audio
 
 
-def chunk_audio(audio: np.ndarray, chunk_size_ms: int, sample_rate: int) -> list[np.ndarray]:
+def chunk_audio(
+    audio: np.ndarray, chunk_size_ms: int, sample_rate: int
+) -> list[np.ndarray]:
     chunk_size_samples = int(chunk_size_ms * sample_rate / 1000)
     chunks = []
-    
+
     for i in range(0, len(audio), chunk_size_samples):
-        chunk = audio[i:i + chunk_size_samples]
+        chunk = audio[i : i + chunk_size_samples]
         if len(chunk) == chunk_size_samples:
             chunks.append(chunk)
-    
+
     return chunks
