@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class ASRConfig(BaseSettings):
     model_name: str = "models/asr/parakeet-tdt-0.6b-v2.nemo"
     sample_rate: int = 16000
-    chunk_size_ms: int = 80
+    chunk_size_ms: int = 100
     streaming: bool = True
     device: str = "cuda"
 
@@ -18,7 +18,7 @@ class TTSConfig(BaseSettings):
 
 class VADConfig(BaseSettings):
     threshold: float = 0.5
-    min_speech_duration_ms: int = 250
+    min_speech_duration_ms: int = 350
     min_silence_duration_ms: int = 100
 
 

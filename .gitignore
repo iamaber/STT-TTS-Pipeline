@@ -73,3 +73,5 @@ htmlcov/
 # Output files
 output/
 results/
+
+*.lock
