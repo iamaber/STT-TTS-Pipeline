@@ -1,14 +1,26 @@
 import torch
 import numpy as np
 from nemo.collections.asr.models import EncDecRNNTBPEModel
-import io
 from scipy.io import wavfile
+import tempfile
+from pathlib import Path
+import os
+
+
+# CRITICAL: Enable expandable segments for CUDA memory allocation
+# This prevents memory corruption in RNNT models (from NeMo official example)
+alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+if "expandable_segments" not in alloc_conf:
+    if len(alloc_conf) > 0:
+        alloc_conf += ",expandable_segments:True"
+    else:
+        alloc_conf = "expandable_segments:True"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = alloc_conf
 
 
 class ASRModel:
     def __init__(self, model_path: str, device: str = 'cuda', verbose: bool = True):
-        # Force CPU for ASR to avoid CUDA memory corruption issues
-        self.device = 'cpu'
+        self.device = device if torch.cuda.is_available() else 'cpu'
         self.verbose = verbose
         
         # Pre-allocate reusable buffer for audio processing
@@ -16,18 +28,24 @@ class ASRModel:
         
         if verbose:
             print(f'Loading Parakeet-TDT ASR model from {model_path}...')
-            print('Note: Running ASR on CPU to avoid CUDA memory issues')
+            print(f'Device: {self.device.upper()}')
+            if self.device == 'cuda':
+                print('Using expandable_segments for CUDA memory (prevents corruption)')
         
         if model_path.endswith('.nemo'):
             self.model = EncDecRNNTBPEModel.restore_from(restore_path=model_path)
         else:
             self.model = EncDecRNNTBPEModel.from_pretrained(model_path)
         
+        # Configure for streaming inference (from NeMo example)
+        self.model.preprocessor.featurizer.dither = 0.0
+        self.model.preprocessor.featurizer.pad_to = 0
+        
         self.model = self.model.to(self.device)
         self.model.eval()
         
         if verbose:
-            print('Parakeet-TDT ready for real-time streaming (CPU mode)')
+            print(f'Parakeet-TDT ready for real-time streaming ({self.device.upper()} mode)')
     
     def _prepare_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> np.ndarray:
         """Optimize audio preparation with pre-allocated buffers"""
@@ -39,24 +57,12 @@ class ASRModel:
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
         
-        # Resample if needed (cache this in future)
+        # Resample if needed
         if sample_rate != 16000:
             import librosa
             audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
         
         return audio
-    
-    def _audio_to_wav_bytes(self, audio: np.ndarray, sample_rate: int = 16000) -> bytes:
-        """Convert audio to WAV bytes in-memory (no file I/O)"""
-        # Convert float32 to int16
-        audio_int16 = (audio * 32767).astype(np.int16)
-        
-        # Write to in-memory buffer
-        buffer = io.BytesIO()
-        wavfile.write(buffer, sample_rate, audio_int16)
-        buffer.seek(0)
-        
-        return buffer.getvalue()
     
     @torch.no_grad()
     def transcribe_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
@@ -68,18 +74,13 @@ class ASRModel:
             if len(audio) < 1600:  # At least 0.1 seconds
                 return ''
             
-            # Use in-memory WAV instead of temp file (faster)
-            # Create a temporary in-memory WAV file
-            import tempfile
-            from pathlib import Path
+            # Clear CUDA cache before transcription
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
             
-            # Still need file path for NeMo, but use /dev/shm for faster I/O
+            # Use RAM disk if available for faster I/O
             shm_dir = Path('/dev/shm')
-            if shm_dir.exists() and shm_dir.is_dir():
-                # Use RAM disk if available (much faster)
-                tmp_dir = shm_dir
-            else:
-                tmp_dir = None
+            tmp_dir = shm_dir if (shm_dir.exists() and shm_dir.is_dir()) else None
             
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False, dir=tmp_dir) as tmp:
                 tmp_path = tmp.name
@@ -96,9 +97,13 @@ class ASRModel:
                         return result.text.strip()
                     return str(result).strip()
                 return ''
+                    
             finally:
                 # Clean up temp file
-                Path(tmp_path).unlink(missing_ok=True)
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except:
+                    pass
             
         except Exception as e:
             if self.verbose:
@@ -108,6 +113,10 @@ class ASRModel:
     @torch.no_grad()
     def transcribe_file(self, audio_path: str) -> str:
         try:
+            # Clear CUDA cache
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+            
             transcriptions = self.model.transcribe([audio_path])
             
             if transcriptions and len(transcriptions) > 0:
