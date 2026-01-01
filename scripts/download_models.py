@@ -1,5 +1,5 @@
 from pathlib import Path
-from nemo.collections.asr.models import EncDecRNNTBPEModel
+from nemo.collections.asr.models import EncDecCTCModelBPE
 from nemo.collections.tts.models import FastPitchModel, HifiGanModel
 
 
@@ -19,17 +19,17 @@ def download_models():
     print("=" * 60)
     print()
 
-    # Download ASR model
-    asr_path = asr_dir / "parakeet-tdt-0.6b-v2.nemo"
+    # Download ASR model - CTC model (GPU stable)
+    asr_path = asr_dir / "parakeet-ctc-1.1b.nemo"
     if asr_path.exists():
-        print("1/3 Parakeet-TDT-0.6B-v2 ASR model already exists")
+        print("1/3 Parakeet-CTC-1.1B ASR model already exists")
         print(f"    ✓ Found at {asr_path}")
     else:
-        print("1/3 Downloading Parakeet-TDT-0.6B-v2 ASR model...")
-        print("    Model: nvidia/parakeet-tdt-0.6b-v2")
+        print("1/3 Downloading Parakeet-CTC-1.1B ASR model...")
+        print("    Model: nvidia/parakeet-ctc-1.1b")
         try:
-            asr_model = EncDecRNNTBPEModel.from_pretrained(
-                "nvidia/parakeet-tdt-0.6b-v2"
+            asr_model = EncDecCTCModelBPE.from_pretrained(
+                "nvidia/parakeet-ctc-1.1b"
             )
             asr_model.save_to(str(asr_path))
             print(f"    ✓ Saved to {asr_path}")

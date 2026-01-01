@@ -2,7 +2,6 @@ import gradio as gr
 import requests
 import numpy as np
 import base64
-import threading
 import uuid
 from scipy import signal
 
@@ -91,26 +90,7 @@ def reset_session(session_id):
     return "", None, new_session_id
 
 
-def warmup():
-    """Warm up the ASR model"""
-    print("Warming up ASR model...")
-    try:
-        dummy_audio = np.zeros(SR * 2, dtype=np.float32)
-        audio_int16 = (dummy_audio * 32768).astype(np.int16)
-        audio_b64 = base64.b64encode(audio_int16.tobytes()).decode("utf-8")
-
-        requests.post(
-            f"{API_URL}/api/stt-tts",
-            json={"audio": audio_b64, "sample_rate": SR},
-            timeout=30,
-        )
-        print("ASR warm-up complete!")
-    except Exception as e:
-        print(f"Warm-up failed: {e}")
-
-
-# Run warmup in background
-threading.Thread(target=warmup, daemon=True).start()
+# Warmup now done in backend startup
 
 
 # Create Gradio interface
@@ -120,13 +100,15 @@ with gr.Blocks(title="Real-Time STT-TTS") as demo:
     # Real-Time Speech-to-Text Pipeline
 
     **Powered by NVIDIA NeMo**
-    - ASR: Parakeet-TDT-0.6B-v2
+    - ASR: Parakeet-CTC-1.1B
     - Real-time streaming with timestamps
+    - TTS: FastPitch Multispeaker 
+    - VoCoder: HiFiGAN 
     """
     )
 
-    # Session state
-    session_id = gr.State(lambda: str(uuid.uuid4()))
+    # Session state - generate ID at startup
+    session_id = gr.State(str(uuid.uuid4()))
 
     with gr.Row():
         with gr.Column():
@@ -170,7 +152,7 @@ with gr.Blocks(title="Real-Time STT-TTS") as demo:
         fn=process_audio,
         inputs=[audio_input, session_id, speaker_dropdown],
         outputs=[transcription_output, audio_output, session_id],
-        stream_every=0.5,
+        stream_every=0.25,  # Process every 0.25 seconds for faster response
     )
 
     # Reset button

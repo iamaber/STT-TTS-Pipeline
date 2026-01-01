@@ -15,6 +15,9 @@ class Pipeline:
         self.asr = ASRModel(
             model_path=settings.asr.model_name, device=settings.asr.device
         )
+        
+        # Warmup ASR BEFORE loading TTS to avoid CUDA conflicts
+        self.asr.warmup()
 
         self.tts = TTSModel(
             acoustic_model=settings.tts.acoustic_model,
@@ -23,9 +26,7 @@ class Pipeline:
         )
 
     def process_audio_to_text(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
-        if not self.vad.is_speech(audio):
-            return ""
-
+        # VAD check is done in streaming.py, so skip here for performance
         transcription = self.asr.transcribe_audio(audio, sample_rate)
         return transcription
 

@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 
 class ASRConfig(BaseSettings):
-    model_name: str = "models/asr/parakeet-tdt-0.6b-v2.nemo"
+    model_name: str = "models/asr/parakeet-ctc-1.1b.nemo"  # CTC model - stable on GPU
     sample_rate: int = 16000
     chunk_size_ms: int = 100
     streaming: bool = True
@@ -41,6 +41,7 @@ settings = Settings()
 
 
 # API Request Models
+# speaker=None means use settings.tts.default_speaker_id at runtime
 class STTTTSRequest(BaseModel):
     audio: str
     sample_rate: int = 16000

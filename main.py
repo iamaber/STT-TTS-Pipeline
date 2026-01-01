@@ -34,6 +34,7 @@ streaming_sessions = {}
 async def startup_event():
     global pipeline
     pipeline = Pipeline()
+    print("Backend ready!")
 
 
 @app.get("/")

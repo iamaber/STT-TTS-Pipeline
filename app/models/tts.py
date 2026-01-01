@@ -1,8 +1,19 @@
 from pathlib import Path
+import os
 import soundfile as sf
 import torch
 import numpy as np
 from typing import Optional
+
+# Monkey-patch torch.load to fix PyTorch 2.6+ weights_only issue with NeMo models
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    # Remove weights_only argument and set to False
+    kwargs.pop('weights_only', None)
+    kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+
 from nemo.collections.tts.models import FastPitchModel, HifiGanModel
 
 
