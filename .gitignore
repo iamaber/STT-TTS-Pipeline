@@ -36,8 +36,6 @@ env/
 .nemo/
 nemo_experiments/
 *.nemo
-models/
-!models/README.md
 
 # Audio files (for testing)
 *.wav
