@@ -50,7 +50,7 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
     
     audio_buffer = []
     last_speech_time = time.time()
-    silence_threshold = 1.5
+    silence_threshold = 0.5
     segment_start_time = None
     
     try:
@@ -67,7 +67,7 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                     executor,
                     pipeline.vad.is_speech,
                     audio_float,
-                    0.5  # threshold
+                    0.3  # Lower threshold for better sensitivity
                 )
                 
                 if is_speech:
