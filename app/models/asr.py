@@ -1,14 +1,10 @@
 import torch
 import numpy as np
-from nemo.collections.asr.models import EncDecRNNTBPEModel
-from scipy.io import wavfile
-import tempfile
-from pathlib import Path
 import os
+from nemo.collections.asr.models import EncDecRNNTBPEModel
 
 
 # CRITICAL: Enable expandable segments for CUDA memory allocation
-# This prevents memory corruption in RNNT models (from NeMo official example)
 alloc_conf = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
 if "expandable_segments" not in alloc_conf:
     if len(alloc_conf) > 0:
@@ -19,113 +15,112 @@ if "expandable_segments" not in alloc_conf:
 
 
 class ASRModel:
+    """Wrapper for ASR model - uses buffered streaming on GPU"""
+    
     def __init__(self, model_path: str, device: str = 'cuda', verbose: bool = True):
-        self.device = device if torch.cuda.is_available() else 'cpu'
+        # Try to use buffered streaming on GPU
+        try:
+            from app.models.asr_buffered import BufferedASRModel
+            self.model = BufferedASRModel(model_path, device, verbose)
+            self.use_buffered = True
+            if verbose:
+                print('Using GPU buffered streaming mode')
+        except Exception as e:
+            # Fallback to CPU simple mode
+            if verbose:
+                print(f'Buffered streaming failed ({e}), using CPU fallback')
+            self._init_cpu_fallback(model_path, verbose)
+            self.use_buffered = False
+    
+    def _init_cpu_fallback(self, model_path: str, verbose: bool):
+        """Fallback to simple CPU mode"""
+        self.device = 'cpu'
         self.verbose = verbose
         
-        # Pre-allocate reusable buffer for audio processing
-        self._audio_buffer = np.zeros(16000 * 30, dtype=np.float32)  # 30 seconds max
-        
         if verbose:
-            print(f'Loading Parakeet-TDT ASR model from {model_path}...')
-            print(f'Device: {self.device.upper()}')
-            if self.device == 'cuda':
-                print('Using expandable_segments for CUDA memory (prevents corruption)')
+            print(f'Loading model in CPU fallback mode...')
         
         if model_path.endswith('.nemo'):
-            self.model = EncDecRNNTBPEModel.restore_from(restore_path=model_path)
+            self.cpu_model = EncDecRNNTBPEModel.restore_from(restore_path=model_path)
         else:
-            self.model = EncDecRNNTBPEModel.from_pretrained(model_path)
+            self.cpu_model = EncDecRNNTBPEModel.from_pretrained(model_path)
         
-        # Configure for streaming inference (from NeMo example)
-        self.model.preprocessor.featurizer.dither = 0.0
-        self.model.preprocessor.featurizer.pad_to = 0
-        
-        self.model = self.model.to(self.device)
-        self.model.eval()
+        self.cpu_model.preprocessor.featurizer.dither = 0.0
+        self.cpu_model.preprocessor.featurizer.pad_to = 0
+        self.cpu_model = self.cpu_model.to('cpu')
+        self.cpu_model.eval()
         
         if verbose:
-            print(f'Parakeet-TDT ready for real-time streaming ({self.device.upper()} mode)')
-    
-    def _prepare_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> np.ndarray:
-        """Optimize audio preparation with pre-allocated buffers"""
-        # Ensure 1D
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        
-        # Ensure float32
-        if audio.dtype != np.float32:
-            audio = audio.astype(np.float32)
-        
-        # Resample if needed
-        if sample_rate != 16000:
-            import librosa
-            audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
-        
-        return audio
+            print('CPU fallback ready')
     
     @torch.no_grad()
     def transcribe_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
-        try:
-            # Prepare audio with optimized processing
-            audio = self._prepare_audio(audio, sample_rate)
-            
-            # Ensure audio is not too short
-            if len(audio) < 1600:  # At least 0.1 seconds
-                return ''
-            
-            # Clear CUDA cache before transcription
-            if self.device == 'cuda':
-                torch.cuda.empty_cache()
-            
-            # Use RAM disk if available for faster I/O
-            shm_dir = Path('/dev/shm')
-            tmp_dir = shm_dir if (shm_dir.exists() and shm_dir.is_dir()) else None
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False, dir=tmp_dir) as tmp:
-                tmp_path = tmp.name
-                # Write directly without intermediate conversion
-                wavfile.write(tmp_path, 16000, (audio * 32767).astype(np.int16))
-            
+        if self.use_buffered:
+            return self.model.transcribe_audio(audio, sample_rate)
+        else:
+            return self._cpu_transcribe(audio, sample_rate)
+    
+    @torch.no_grad()
+    def transcribe_file(self, audio_path: str) -> str:
+        if self.use_buffered:
+            return self.model.transcribe_file(audio_path)
+        else:
             try:
-                # Transcribe from file
-                transcriptions = self.model.transcribe([tmp_path], batch_size=1)
-                
+                transcriptions = self.cpu_model.transcribe([audio_path])
                 if transcriptions and len(transcriptions) > 0:
                     result = transcriptions[0]
                     if hasattr(result, 'text'):
                         return result.text.strip()
                     return str(result).strip()
                 return ''
-                    
+            except Exception as e:
+                if self.verbose:
+                    print(f'File transcription error: {e}')
+                return ''
+    
+    def _cpu_transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
+        """Simple CPU transcription fallback"""
+        try:
+            # Prepare audio
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
+            if audio.dtype != np.float32:
+                audio = audio.astype(np.float32)
+            
+            if sample_rate != 16000:
+                import librosa
+                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+            
+            if len(audio) < 1600:
+                return ''
+            
+            # Save to temp file and transcribe
+            import tempfile
+            from pathlib import Path
+            from scipy.io import wavfile
+            
+            shm_dir = Path('/dev/shm')
+            tmp_dir = shm_dir if (shm_dir.exists() and shm_dir.is_dir()) else None
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False, dir=tmp_dir) as tmp:
+                tmp_path = tmp.name
+                wavfile.write(tmp_path, 16000, (audio * 32767).astype(np.int16))
+            
+            try:
+                transcriptions = self.cpu_model.transcribe([tmp_path], batch_size=1)
+                if transcriptions and len(transcriptions) > 0:
+                    result = transcriptions[0]
+                    if hasattr(result, 'text'):
+                        return result.text.strip()
+                    return str(result).strip()
+                return ''
             finally:
-                # Clean up temp file
                 try:
                     Path(tmp_path).unlink(missing_ok=True)
                 except:
                     pass
-            
+                    
         except Exception as e:
             if self.verbose:
-                print(f'Transcription error: {e}')
-            return ''
-    
-    @torch.no_grad()
-    def transcribe_file(self, audio_path: str) -> str:
-        try:
-            # Clear CUDA cache
-            if self.device == 'cuda':
-                torch.cuda.empty_cache()
-            
-            transcriptions = self.model.transcribe([audio_path])
-            
-            if transcriptions and len(transcriptions) > 0:
-                result = transcriptions[0]
-                if hasattr(result, 'text'):
-                    return result.text.strip()
-                return str(result).strip()
-            return ''
-        except Exception as e:
-            if self.verbose:
-                print(f'File transcription error: {e}')
+                print(f'CPU transcription error: {e}')
             return ''
