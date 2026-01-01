@@ -67,7 +67,7 @@ async def handle_streaming_pipeline(websocket: WebSocket, pipeline):
                     executor,
                     pipeline.vad.is_speech,
                     audio_float,
-                    0.3  # Lower threshold for better sensitivity
+                    0.6  # Higher threshold to reduce false positives
                 )
                 
                 if is_speech:
