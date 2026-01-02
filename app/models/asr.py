@@ -4,12 +4,15 @@ import os
 from nemo.collections.asr.models import EncDecCTCModelBPE
 
 
-# Set CUDA config
+# CUDA Performance Optimizations
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+torch.backends.cudnn.benchmark = True  # Auto-tune convolutions
+torch.backends.cuda.matmul.allow_tf32 = True  # Use TF32 for faster matmul
+torch.backends.cudnn.allow_tf32 = True  # Use TF32 for cuDNN
+torch.set_float32_matmul_precision("high")  # Faster matmul
 
 
 class ASRModel:
-    # CTC model - more stable for GPU inference than RNNT/TDT
 
     def __init__(self, model_path: str, device: str = "cuda", verbose: bool = True):
         self.verbose = verbose
@@ -39,6 +42,15 @@ class ASRModel:
         self.model = self.model.to(self.device)
         self.model.freeze()
         self.model.eval()
+        
+        # Set decoding strategy to greedy_batch for better performance
+        try:
+            self.model.change_decoding_strategy(decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"})
+            if verbose:
+                print("Using greedy_batch decoding strategy")
+        except Exception as e:
+            if verbose:
+                print(f"Could not set greedy_batch strategy: {e}")
 
         if verbose:
             print(f"ASR model ready on {self.device}")
@@ -68,6 +80,7 @@ class ASRModel:
                 audio = audio.astype(np.float32)
             if sample_rate != 16000:
                 import librosa
+
                 audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
             if len(audio) < 1600:
                 return ""
@@ -80,7 +93,9 @@ class ASRModel:
             shm_dir = Path("/dev/shm")
             tmp_dir = shm_dir if shm_dir.exists() else None
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=tmp_dir) as tmp:
+            with tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False, dir=tmp_dir
+            ) as tmp:
                 tmp_path = tmp.name
                 wavfile.write(tmp_path, 16000, (audio * 32767).astype(np.int16))
 
