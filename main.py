@@ -20,9 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
-app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
-
 # Global pipeline instance
 pipeline = None
 
@@ -37,17 +34,9 @@ async def startup_event():
     print("Backend ready!")
 
 
-@app.get("/")
-async def root():
-    return {
-        "message": "STT-TTS Pipeline API",
-        "version": "1.0.0",
-        "endpoints": {
-            "stt_tts": "/api/stt-tts",
-            "stream_process": "/api/stream/process",
-            "stream_reset": "/api/stream/reset",
-        },
-    }
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.post("/api/stt-tts")
@@ -112,3 +101,7 @@ async def stream_reset(session_id: str):
         streaming_sessions[session_id] = StreamingSession()
 
     return {"status": "reset", "session_id": session_id}
+
+
+# Mount static files AFTER all API routes
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
