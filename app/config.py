@@ -15,7 +15,7 @@ class TTSConfig(BaseSettings):
     vocoder_model: str = "models/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
     sample_rate: int = 44100
     device: str = "cuda"
-    default_speaker_id: int = 92  # Default TTS speaker (0-12799)
+    default_speaker_id: int = 50  # Safer speaker ID range (0-100 typically better quality)
 
 
 class VADConfig(BaseSettings):
