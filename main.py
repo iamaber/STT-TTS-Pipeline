@@ -90,8 +90,11 @@ async def stream_process(request: StreamingRequest):
 
     # Encode TTS if available
     tts_b64 = None
-    if tts_audio is not None:
+    if tts_audio is not None and len(tts_audio) > 0:
+        print(f"DEBUG API: Encoding {len(tts_audio)} TTS samples")
         tts_b64 = base64.b64encode(tts_audio.tobytes()).decode("utf-8")
+    else:
+        print(f"DEBUG API: No TTS audio to encode (tts_audio={'None' if tts_audio is None else f'{len(tts_audio)} samples'})")
 
     return {
         "transcription": transcripts,
