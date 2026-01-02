@@ -1,7 +1,7 @@
 from typing import Optional
-from app.models.vad import SileroVAD
-from app.models.asr import ASRModel
-from app.models.tts import TTSModel
+from app.core.vad import SileroVAD
+from app.core.asr import ASRModel
+from app.core.tts import TTSModel
 from app.config import settings
 import numpy as np
 
