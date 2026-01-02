@@ -32,8 +32,7 @@ class StreamingSession:
         self.transcripts = []
         self.is_speaking = False
         self.consecutive_silence = 0
-        self.silence_trigger_count = 3  # ~0.375s for stable detection
-
+        self.silence_trigger_count = 2
     def reset(self):
         self.audio_buffer = np.array([], dtype=np.float32)
         self.transcripts = []
