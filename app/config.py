@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 
 class ASRConfig(BaseSettings):
-    model_name: str = "models/asr/parakeet-ctc-1.1b.nemo"  # CTC model - stable on GPU
+    model_name: str = "models/asr/parakeet-ctc-1.1b.nemo" 
     sample_rate: int = 16000
     chunk_size_ms: int = 100
     streaming: bool = True
@@ -15,7 +15,7 @@ class TTSConfig(BaseSettings):
     vocoder_model: str = "models/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
     sample_rate: int = 44100
     device: str = "cuda"
-    default_speaker_id: int = 50  # Safer speaker ID range (0-100 typically better quality)
+    default_speaker_id: int = 50  
 
 
 class VADConfig(BaseSettings):
