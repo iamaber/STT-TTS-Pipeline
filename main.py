@@ -21,6 +21,7 @@ from app.config import (
     CleanupResponse,
 )
 from app.utils.audio import decode_audio, encode_audio
+from app.utils.text import clean_text_for_display
 
 
 # Initialize FastAPI app
@@ -54,18 +55,15 @@ async def startup_event():
 
     pipeline = Pipeline()
 
-    # Initialize LLM service if API key is provided
-    if settings.llm.api_key:
-        try:
-            llm_service = LLMService()
-            conversation_manager = ConversationManager()
-            tts_queue_manager = TTSQueueManager(pipeline)
-            print("Backend ready with LLM!")
-        except Exception as e:
-            print(f"LLM initialization failed: {e}")
-            print("Backend ready without LLM")
-    else:
-        print("Backend ready without LLM (no API key provided)")
+    # Initialize custom LLM service
+    try:
+        llm_service = LLMService()
+        conversation_manager = ConversationManager()
+        tts_queue_manager = TTSQueueManager(pipeline)
+        print("Backend ready with custom LLM!")
+    except Exception as e:
+        print(f"LLM initialization failed: {e}")
+        print("Backend ready without LLM")
 
 
 @app.get("/api/health")
@@ -125,15 +123,7 @@ async def stt_tts(request: STTTTSRequest) -> TTSResponse:
 
 @app.post("/api/stream/process", response_model=StreamingResponse)
 async def stream_process(request: StreamingRequest) -> StreamingResponse:
-    """
-    Process streaming audio chunk with semantic sentence detection.
-
-    Args:
-        request: Session ID, audio chunk, and configuration
-
-    Returns:
-        Current transcripts and TTS audio (if sentence complete)
-    """
+    """Process streaming audio chunk with semantic sentence detection."""
     # Get or create session
     if request.session_id not in streaming_sessions:
         streaming_sessions[request.session_id] = StreamingSession()
@@ -143,17 +133,19 @@ async def stream_process(request: StreamingRequest) -> StreamingResponse:
     # Decode audio
     audio_data = decode_audio(request.audio)
 
-    # Use default speaker if not provided
-    speaker_id = (
-        request.speaker
-        if request.speaker is not None
-        else settings.tts.default_speaker_id
-    )
+    speaker_id = request.speaker or settings.tts.default_speaker_id
 
     # Process streaming audio
-    transcripts, tts_audio, tts_sr = process_streaming_audio(
+    transcripts, tts_audio, tts_sr, is_speech_start = process_streaming_audio(
         session, pipeline, audio_data, request.sample_rate, speaker_id
     )
+
+    # Handle interruption
+    if is_speech_start and conversation_manager.is_processing:
+        print("Interruption detected!")
+        await conversation_manager.cancel_processing()
+        if tts_queue_manager:
+            tts_queue_manager.clear_queues()
 
     # Encode TTS if available
     tts_b64 = None
@@ -167,19 +159,17 @@ async def stream_process(request: StreamingRequest) -> StreamingResponse:
 
 @app.post("/api/stream/reset", response_model=ResetResponse)
 async def stream_reset(session_id: str) -> ResetResponse:
-    """
-    Reset or create a streaming session.
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        Reset confirmation
-    """
+    """Reset or create a streaming session."""
     if session_id in streaming_sessions:
         streaming_sessions[session_id].reset()
     else:
         streaming_sessions[session_id] = StreamingSession()
+
+    if conversation_manager:
+        conversation_manager.clear_history()
+
+    if llm_service:
+        await llm_service.clear_memory()
 
     return ResetResponse(status="reset", session_id=session_id)
 
@@ -187,19 +177,13 @@ async def stream_reset(session_id: str) -> ResetResponse:
 # Conversation Endpoints
 @app.post("/api/conversation/send", response_model=ConversationResponse)
 async def send_message(request: ConversationRequest) -> ConversationResponse:
-    """
-    Send user message to LLM with streaming response.
-    Returns immediately with response_id for polling.
-    """
+    """Send user message to LLM with streaming response."""
     if not llm_service:
         return ConversationResponse(status="error", response_id=None, position=None)
 
-    # Add to conversation queue
     speaker_id = request.speaker_id or settings.tts.default_speaker_id
     queue_status = await conversation_manager.add_user_input(
-        request.text,
-        request.session_id,
-        speaker_id,  # Pass speaker_id to queue
+        request.text, request.session_id, speaker_id
     )
 
     if queue_status["status"] == "queued":
@@ -213,16 +197,8 @@ async def send_message(request: ConversationRequest) -> ConversationResponse:
     response_id = str(uuid.uuid4())
     conversation_manager.current_response_id = response_id
 
-    # Start LLM streaming in background
-    import asyncio
-
     asyncio.create_task(
-        process_llm_streaming(
-            request.text,
-            request.speaker_id or settings.tts.default_speaker_id,
-            response_id,
-            request.session_id,
-        )
+        process_llm_streaming(request.text, speaker_id, response_id, request.session_id)
     )
 
     return ConversationResponse(
@@ -238,19 +214,39 @@ async def process_llm_streaming(
     conversation_manager.current_session_id = session_id
     conversation_manager.add_to_history("user", user_text)
 
-    try:
-        # Stream LLM response
-        async for sentence in llm_service.generate_streaming(
-            user_text, conversation_manager.conversation_history
-        ):
-            # Add sentence to conversation history
-            conversation_manager.add_to_history("assistant", sentence)
+    tts_buffer = ""  # Buffer multiple sentences for better audio
 
-            # Queue TTS generation
-            await tts_queue_manager.add_to_tts_queue(sentence, speaker_id)
+    try:
+        async for sentence in llm_service.generate(user_text):
+            # Clean sentence
+            cleaned = sentence.strip()
+            if cleaned.lower().startswith("assistant:"):
+                cleaned = cleaned[10:].strip()
+
+            cleaned = clean_text_for_display(cleaned)
+
+            if not cleaned:
+                continue
+
+            # Buffer sentences together (2-3 sentences for better audio)
+            tts_buffer += " " + cleaned if tts_buffer else cleaned
+
+            # Send to TTS every 2-3 sentences or on punctuation
+            sentence_count = (
+                tts_buffer.count(".") + tts_buffer.count("!") + tts_buffer.count("?")
+            )
+            if sentence_count >= 2 or len(tts_buffer) > 200:
+                conversation_manager.add_to_history("assistant", tts_buffer)
+                await tts_queue_manager.add_to_tts_queue(tts_buffer, speaker_id)
+                tts_buffer = ""
 
     except Exception as e:
         print(f"LLM streaming error: {e}")
+
+    # Send remaining buffered text
+    if tts_buffer.strip():
+        conversation_manager.add_to_history("assistant", tts_buffer)
+        await tts_queue_manager.add_to_tts_queue(tts_buffer, speaker_id)
 
     conversation_manager.is_processing = False
 
@@ -259,14 +255,13 @@ async def process_llm_streaming(
     if next_input:
         import uuid
 
-        # Use speaker_id from the queued input, or default if not set
         next_speaker_id = (
             next_input.get("speaker_id") or settings.tts.default_speaker_id
         )
         asyncio.create_task(
             process_llm_streaming(
                 next_input["text"],
-                next_speaker_id,  # Use the correct speaker_id from queued input
+                next_speaker_id,
                 str(uuid.uuid4()),
                 next_input["session_id"],
             )
@@ -284,16 +279,11 @@ async def get_next_audio() -> AudioQueueResponse:
     audio = await tts_queue_manager.get_next_audio()
 
     if audio:
-        # Read audio file
-        import soundfile as sf
-
-        audio_data, sr = sf.read(audio["path"])
-
-        # Encode to base64
-        audio_b64 = encode_audio(audio_data)
-
         return AudioQueueResponse(
-            audio_id=audio["id"], audio=audio_b64, sample_rate=sr, text=audio["text"]
+            audio_id=audio["id"],
+            audio=audio["audio"],
+            sample_rate=audio["sample_rate"],
+            text=audio["text"],
         )
 
     return AudioQueueResponse(audio_id=None, audio=None, sample_rate=None, text=None)

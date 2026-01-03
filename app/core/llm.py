@@ -1,113 +1,96 @@
 import re
-import os
+import httpx
 from typing import AsyncIterator
-from pydantic_ai import Agent
-from pydantic_ai.models.google import GoogleModel
 
 from app.config import settings
 
 
 class LLMService:
-    """Gemini LLM service with streaming sentence-by-sentence generation"""
-
     def __init__(self):
-        # Configure Gemini API
-        if not settings.llm.api_key:
-            raise ValueError(
-                "LLM__API_KEY environment variable must be set. "
-            )
+        self.api_url = settings.llm.api_url
+        self.client = httpx.AsyncClient()
+        print(f"LLM Service initialized: {self.api_url}")
 
-        # Set environment variable for Pydantic AI (it looks for GEMINI_API_KEY)
-        os.environ["GEMINI_API_KEY"] = settings.llm.api_key
+    async def clear_memory(self) -> bool:
+        """No-op: API handles memory management"""
+        return True
 
-        # Initialize Google Model using latest Pydantic AI API
-        self.model = GoogleModel(
-            model_name=settings.llm.model_name,
-            provider='google-gla'  # Use Generative Language API
-        )
-
-        # Create agent with system prompt
-        self.agent = Agent(
-            model=self.model,
-            system_prompt=settings.llm.system_prompt
-        )
-
-        print(f"LLM Service initialized: {settings.llm.model_name}")
-
-    async def generate_streaming(
-        self, user_message: str, conversation_history: list = None
-    ) -> AsyncIterator[str]:
+    async def generate(self, user_message: str) -> AsyncIterator[str]:
         """
-        Generate streaming response from LLM.
-        Yields complete sentences as they're generated.
-
-        Args:
-            user_message: User's input text
-            conversation_history: Previous conversation messages
-
-        Yields:
-            Complete sentences as they're generated
+        Generate response from LLM API.
+        API handles memory management and yields complete sentences.
         """
+        payload = {
+            "prompt": user_message,
+            "max_tokens": settings.llm.max_tokens,
+            "temperature": settings.llm.temperature,
+            "top_p": settings.llm.top_p,
+            "include_chat_history": settings.llm.include_chat_history,
+            "context": settings.llm.context,
+        }
+
         sentence_buffer = ""
 
         try:
-            # Run agent with streaming
-            async with self.agent.run_stream(user_message) as response:
-                async for chunk in response.stream_text():
-                    sentence_buffer += chunk
+            async with self.client.stream(
+                "POST", self.api_url, json=payload
+            ) as response:
+                response.raise_for_status()
 
-                    # Check for sentence endings
-                    sentences = self._extract_complete_sentences(sentence_buffer)
+                # SSE format - word-by-word streaming
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
 
-                    for sentence in sentences:
+                    chunk = line[6:].strip()
+
+                    if chunk == "[DONE]" or not chunk:
+                        continue
+
+                    sentence_buffer += chunk + " "
+
+                    # Extract and yield complete sentences
+                    complete_sentences, sentence_buffer = self._extract_sentences(
+                        sentence_buffer
+                    )
+                    for sentence in complete_sentences:
                         yield sentence
-                        # Remove yielded sentence from buffer
-                        sentence_buffer = sentence_buffer[len(sentence) :].lstrip()
 
-            # Yield any remaining text as final sentence
+            print(f"\n\nChecking sentence buffer: {sentence_buffer}\n\n")
+
+            # Yield remaining text
             if sentence_buffer.strip():
                 yield sentence_buffer.strip()
 
+        except httpx.HTTPError as e:
+            print(f"LLM HTTP error: {e}")
+            yield f"Error connecting to LLM: {str(e)}"
         except Exception as e:
-            print(f"LLM generation error: {e}")
-            yield f"I apologize, but I encountered an error: {str(e)}"
+            print(f"LLM error: {e}")
+            yield f"Error: {str(e)}"
 
-    def _extract_complete_sentences(self, text: str) -> list[str]:
+    def _extract_sentences(self, text: str) -> tuple[list[str], str]:
         """
-        Extract complete sentences from text buffer.
-        Optimized for faster TTS generation by detecting more punctuation.
-
-        Args:
-            text: Text buffer to process
-
-        Returns:
-            List of complete sentences
+        Extract complete sentences (. ! ? only) from buffer.
+        Returns complete sentences and remaining buffer.
         """
-        # Enhanced pattern for sentence endings:
-        # . ! ? , ; : followed by space or end of string
-        # This allows TTS to start earlier on commas and semicolons
-        pattern = r"([^.!?,;:]*[.!?,;:])(?:\s+|$)"
-
-        matches = re.findall(pattern, text)
         sentences = []
-        
-        for match in matches:
-            match = match.strip()
-            if match:
-                # Only yield if it has meaningful content (not just punctuation)
-                if len(match) > 2:  # At least 2 chars + punctuation
-                    sentences.append(match)
-        
-        return sentences
 
-    def _is_sentence_complete(self, text: str) -> bool:
-        """
-        Check if text ends with sentence-ending punctuation.
+        # Split only on sentence-ending punctuation: . ! ?
+        pattern = r"([.!?])\s+"
+        parts = re.split(pattern, text)
 
-        Args:
-            text: Text to check
+        # Reconstruct: text + punctuation pairs
+        i = 0
+        while i < len(parts) - 1:
+            text_part = parts[i].strip()
+            if text_part:
+                punct = parts[i + 1]  # . ! or ?
+                sentence = text_part + punct
+                sentences.append(sentence)
+            i += 2
 
-        Returns:
-            True if sentence is complete
-        """
-        return text.rstrip().endswith((".", "!", "?"))
+        # Remaining incomplete text (no punctuation yet)
+        remaining = parts[-1].strip() if parts else ""
+
+        return sentences, remaining

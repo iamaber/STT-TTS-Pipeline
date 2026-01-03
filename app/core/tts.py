@@ -128,6 +128,9 @@ class TTS:
             return np.array([], dtype=np.float32)
 
         combined_audio = np.concatenate(audio_chunks)
+        
+        # Debug: Log audio generation
+        print(f"TTS generated: {text[:50]}... ({len(combined_audio)} samples, {len(combined_audio)/self.sample_rate:.2f}s)")
 
         # Add silence padding for very short audio (for frontend compatibility)
         min_samples = int(self.min_audio_duration * self.sample_rate)
@@ -171,11 +174,8 @@ class TTS:
                 print("TTS: No valid words, skipping")
             return np.array([], dtype=np.float32)
 
-        # Limit text length to prevent memory issues
-        if len(text) > 500:
-            text = text[:500]
-            if self.verbose:
-                print("TTS: Truncated text to 500 chars")
+        # Note: max_text_length is already handled in _split_text() method
+        # No need to truncate here as it will break sentences mid-word
 
         # Validate speaker ID (use safer range)
         if speaker >= self.n_speakers or speaker < 0:
