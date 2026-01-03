@@ -23,9 +23,11 @@ def encode_audio(audio_float32: np.ndarray) -> str:
     Encode float32 audio to base64.
     
     Args:
-        audio_float32: Float32 numpy array
+        audio_float32: Float32 numpy array normalized to [-1, 1]
         
     Returns:
-        Base64 encoded string
+        Base64 encoded int16 audio string
     """
-    return base64.b64encode(audio_float32.tobytes()).decode("utf-8")
+    # Convert float32 [-1, 1] to int16 [-32768, 32767]
+    audio_int16 = (audio_float32 * 32768.0).astype(np.int16)
+    return base64.b64encode(audio_int16.tobytes()).decode("utf-8")
