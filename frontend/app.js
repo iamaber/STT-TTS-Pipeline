@@ -1,240 +1,622 @@
-// Configuration
-const API_URL = 'http://localhost:8000';
-const SAMPLE_RATE = 16000;
+const API_URL = window.location.origin;
 
-// State
+// Configuration loaded from backend
+let CONFIG = {
+    asr: { sample_rate: 16000, chunk_size_ms: 100 },
+    tts: { sample_rate: 44100, default_speaker_id: 92 },
+    streaming: { sample_rate: 16000, max_buffer_seconds: 60 },
+    llm_enabled: false
+};
+
+// Audio processing constants
+const AUDIO_CHUNK_SIZE = 4096; // Size of audio chunks for streaming
+const POLL_INTERVAL = 500; // Interval for polling audio queue (ms)
+
+// GLOBAL STATE
 let mediaRecorder = null;
 let audioContext = null;
-let sessionId = generateSessionId();
+let audioWorkletNode = null;
+let sessionId = null;   
 let isRecording = false;
+let currentAudioQueue = [];
+let isPlayingAudio = false;
+let isPolling = false;
 
-// DOM Elements
-const startBtn = document.getElementById('start-btn');
-const stopBtn = document.getElementById('stop-btn');
-const resetBtn = document.getElementById('reset-btn');
-const speakerSelect = document.getElementById('speaker-select');
-const transcriptionBox = document.getElementById('transcription-box');
-const audioPlayer = document.getElementById('audio-player');
-const audioStatus = document.getElementById('audio-status');
-const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
+// ============================================
+// DOM ELEMENTS
+// ============================================
+const elements = {
+    // Buttons
+    startBtn: document.getElementById('start-btn'),
+    stopBtn: document.getElementById('stop-btn'),
+    resetBtn: document.getElementById('reset-btn'),
+    speakerSelect: document.getElementById('speaker-select'),
+    
+    // Status indicators
+    statusDot: document.getElementById('status-dot'),
+    statusText: document.getElementById('status-text'),
+    queueStatus: document.getElementById('queue-status'),
+    
+    // ASR (User) section
+    asrStatus: document.getElementById('asr-status'),
+    asrTyping: document.getElementById('asr-typing'),
+    asrText: document.getElementById('asr-text'),
+    
+    // LLM (Assistant) section
+    llmStatus: document.getElementById('llm-status'),
+    llmText: document.getElementById('llm-text'),
+    llmCursor: document.getElementById('llm-cursor'),
+    
+    // TTS section
+    ttsText: document.getElementById('tts-text'),
+    ttsProgress: document.getElementById('tts-progress'),
+    queueCount: document.getElementById('queue-count'),
+    
+    // History
+    conversationHistory: document.getElementById('conversation-history')
+};
 
-// Event Listeners
-startBtn.addEventListener('click', startRecording);
-stopBtn.addEventListener('click', stopRecording);
-resetBtn.addEventListener('click', resetSession);
-
-// Generate unique session ID
-function generateSessionId() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
-// Update status
-function updateStatus(status, text) {
-    statusDot.className = `status-dot ${status}`;
-    statusText.textContent = text;
-}
-
-// Start recording
-async function startRecording() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-                channelCount: 1,
-                sampleRate: SAMPLE_RATE,
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            } 
-        });
-
-        audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-        const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-
-        processor.onaudioprocess = async (e) => {
-            if (!isRecording) return;
-
-            const audioData = e.inputBuffer.getChannelData(0);
-            await processAudioChunk(audioData);
+// ============================================
+// CONVERSATION UI CLASS
+// Manages all UI updates for real-time streaming
+// ============================================
+class ConversationUI {
+    constructor() {
+        this.currentLLMText = '';
+        this.currentSentenceIndex = 0;
+        this.totalSentences = 0;
+    }
+    
+    // ----------------------------------------
+    // ASR (User Speech) Updates
+    // ----------------------------------------
+    updateASR(text, isActive = true) {
+        // Format text to show line-by-line (replace timestamps with newlines)
+        const formattedText = text.replace(/\]\s*/g, ']\n') || 'Speak to start...';
+        elements.asrText.textContent = formattedText;
+        
+        if (isActive) {
+            elements.asrTyping.classList.add('active');
+            elements.asrStatus.textContent = 'Speaking...';
+            elements.asrStatus.classList.add('active');
+        } else {
+            elements.asrTyping.classList.remove('active');
+            elements.asrStatus.textContent = 'Completed';
+            elements.asrStatus.classList.remove('active');
+        }
+    }
+    
+    // ----------------------------------------
+    // LLM Streaming Updates
+    // ----------------------------------------
+    startLLMStreaming() {
+        this.currentLLMText = '';
+        elements.llmText.textContent = '';
+        elements.llmCursor.classList.add('active');
+        elements.llmStatus.textContent = 'Thinking...';
+        elements.llmStatus.classList.add('active');
+    }
+    
+    appendLLMText(text) {
+        // Add text with streaming animation (character by character)
+        const newText = this.currentLLMText + text;
+        this.animateText(this.currentLLMText, newText);
+        this.currentLLMText = newText;
+    }
+    
+    animateText(fromText, toText) {
+        // Animate from current text to new text
+        const newChars = toText.substring(fromText.length);
+        let charIndex = 0;
+        
+        const animate = () => {
+            if (charIndex < newChars.length) {
+                elements.llmText.textContent += newChars[charIndex];
+                charIndex++;
+                // Faster animation: 20ms per character
+                setTimeout(animate, 20);
+                // Auto-scroll to show latest text
+                elements.llmText.scrollTop = elements.llmText.scrollHeight;
+            }
         };
-
-        isRecording = true;
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        updateStatus('recording', 'Recording...');
-
-    } catch (error) {
-        console.error('Error starting recording:', error);
-        alert('Failed to access microphone. Please check permissions.');
+        
+        animate();
+    }
+    
+    completeLLMSentence() {
+        this.currentLLMText += ' ';
+        elements.llmText.textContent = this.currentLLMText;
+    }
+    
+    stopLLMStreaming() {
+        elements.llmCursor.classList.remove('active');
+        elements.llmStatus.textContent = 'Complete';
+        elements.llmStatus.classList.remove('active');
+    }
+    
+    // ----------------------------------------
+    // TTS Playback Updates
+    // ----------------------------------------
+    updateTTSStatus(text, progress = 0, queueSize = 0) {
+        elements.ttsText.textContent = text;
+        elements.ttsProgress.style.width = `${progress}%`;
+        elements.queueCount.textContent = `Queue: ${queueSize} sentence${queueSize !== 1 ? 's' : ''}`;
+    }
+    
+    startTTSPlayback(sentenceText, sentenceIndex, totalSentences) {
+        this.currentSentenceIndex = sentenceIndex;
+        this.totalSentences = totalSentences;
+        
+        const displayText = sentenceText.length > 50 
+            ? `Speaking: "${sentenceText.substring(0, 50)}..."` 
+            : `Speaking: "${sentenceText}"`;
+            
+        this.updateTTSStatus(
+            displayText,
+            0,
+            totalSentences - sentenceIndex - 1
+        );
+    }
+    
+    updateTTSProgress(progress) {
+        this.updateTTSStatus(
+            elements.ttsText.textContent,
+            progress,
+            this.totalSentences - this.currentSentenceIndex - 1
+        );
+    }
+    
+    completeTTSPlayback() {
+        this.updateTTSStatus('Ready to speak', 0, 0);
+    }
+    
+    // ----------------------------------------
+    // Overall Status Updates
+    // ----------------------------------------
+    updateStatus(statusClass, text, queueInfo = null) {
+        elements.statusDot.className = `status-dot ${statusClass}`;
+        elements.statusText.textContent = text;
+        
+        if (queueInfo) {
+            elements.queueStatus.innerHTML = `<small>${queueInfo}</small>`;
+        } else {
+            elements.queueStatus.innerHTML = '<small>Queue: 0 messages</small>';
+        }
+    }
+    
+    // ----------------------------------------
+    // Conversation History
+    // ----------------------------------------
+    addToHistory(role, text) {
+        // Remove placeholder if exists
+        const placeholder = elements.conversationHistory.querySelector('.placeholder');
+        if (placeholder) {
+            placeholder.remove();
+        }
+        
+        // Create history item
+        const item = document.createElement('div');
+        item.className = `history-item ${role}`;
+        item.innerHTML = `
+            <div class="role">${role === 'user' ? '👤 You' : '🤖 Assistant'}</div>
+            <div>${text}</div>
+        `;
+        
+        elements.conversationHistory.appendChild(item);
+        // Auto-scroll to bottom
+        elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
     }
 }
 
-// Stop recording
+// Initialize UI manager
+const conversationUI = new ConversationUI();
+
+// ============================================
+// AUDIO RECORDING & STREAMING
+// ============================================
+async function startRecording() {
+    try {
+        // Request microphone access
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // Initialize audio context with config sample rate
+        audioContext = new AudioContext({ sampleRate: CONFIG.asr.sample_rate });
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        // Create audio processor
+        await audioContext.audioWorklet.addModule(createAudioProcessorCode());
+        audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+        
+        // Connect audio pipeline
+        source.connect(audioWorkletNode);
+        audioWorkletNode.connect(audioContext.destination);
+        
+        // Handle audio chunks
+        audioWorkletNode.port.onmessage = async (event) => {
+            if (isRecording) {
+                await sendAudioChunk(event.data);
+            }
+        };
+        
+        // Generate session ID
+        sessionId = `session_${Date.now()}`;
+        isRecording = true;
+        
+        // Update UI
+        elements.startBtn.disabled = true;
+        elements.stopBtn.disabled = false;
+        conversationUI.updateStatus('recording', 'Recording', null);
+        conversationUI.updateASR('Listening...', true);
+        
+        console.log('Recording started');
+    } catch (error) {
+        console.error('Failed to start recording:', error);
+        alert('Microphone access denied or not available');
+    }
+}
+
 function stopRecording() {
     isRecording = false;
     
+    // Cleanup audio resources
+    if (audioWorkletNode) {
+        audioWorkletNode.disconnect();
+        audioWorkletNode = null;
+    }
     if (audioContext) {
         audioContext.close();
         audioContext = null;
     }
-
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    updateStatus('ready', 'Ready');
+    
+    // Update UI
+    elements.startBtn.disabled = false;
+    elements.stopBtn.disabled = true;
+    conversationUI.updateStatus('ready', 'Ready', null);
+    conversationUI.updateASR('', false);
+    
+    console.log('Recording stopped');
 }
 
-// Process audio chunk
-async function processAudioChunk(audioData) {
+async function resetSession() {
+    // Stop recording if active
+    if (isRecording) {
+        stopRecording();
+    }
+    
+    // Stop audio playback
+    isPolling = false;
+    currentAudioQueue = [];
+    isPlayingAudio = false;
+    
+    // Reset session on server
+    if (sessionId) {
+        try {
+            await fetch(`${API_URL}/api/stream/reset?session_id=${sessionId}`, {
+                method: 'POST'
+            });
+        } catch (error) {
+            console.error('Reset error:', error);
+        }
+    }
+    
+    // Reset UI
+    sessionId = null;
+    window.lastSentTranscript = null;  // Reset transcript tracker
+    conversationUI.currentLLMText = '';
+    elements.asrText.textContent = 'Speak to start...';
+    elements.llmText.textContent = 'Waiting for your message...';
+    elements.conversationHistory.innerHTML = '<p class="placeholder">Conversation history will appear here...</p>';
+    conversationUI.updateStatus('ready', 'Ready', null);
+    conversationUI.completeTTSPlayback();
+    
+    console.log('Session reset');
+}
+
+// ============================================
+// AUDIO PROCESSING
+// ============================================
+function createAudioProcessorCode() {
+    // Create inline audio processor worklet
+    const processorCode = `
+        class AudioProcessor extends AudioWorkletProcessor {
+            constructor() {
+                super();
+                this.bufferSize = ${AUDIO_CHUNK_SIZE};
+                this.buffer = new Float32Array(this.bufferSize);
+                this.bufferIndex = 0;
+            }
+            
+            process(inputs) {
+                const input = inputs[0];
+                if (input.length > 0) {
+                    const channelData = input[0];
+                    
+                    for (let i = 0; i < channelData.length; i++) {
+                        this.buffer[this.bufferIndex++] = channelData[i];
+                        
+                        if (this.bufferIndex >= this.bufferSize) {
+                            this.port.postMessage(this.buffer.slice());
+                            this.bufferIndex = 0;
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+        
+        registerProcessor('audio-processor', AudioProcessor);
+    `;
+    
+    const blob = new Blob([processorCode], { type: 'application/javascript' });
+    return URL.createObjectURL(blob);
+}
+
+async function sendAudioChunk(audioData) {
     try {
         // Convert float32 to int16
         const int16Data = new Int16Array(audioData.length);
         for (let i = 0; i < audioData.length; i++) {
             int16Data[i] = Math.max(-32768, Math.min(32767, audioData[i] * 32768));
         }
-
-        // Convert to base64
-        const audioB64 = btoa(String.fromCharCode(...new Uint8Array(int16Data.buffer)));
-
-        // Send to backend
+        
+        // Encode to base64
+        const base64Audio = btoa(String.fromCharCode(...new Uint8Array(int16Data.buffer)));
+        
+        // Send to server (backend will use default speaker from config)
         const response = await fetch(`${API_URL}/api/stream/process`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 session_id: sessionId,
-                audio: audioB64,
-                sample_rate: SAMPLE_RATE,
-                speaker: parseInt(speakerSelect.value)
+                audio: base64Audio,
+                sample_rate: CONFIG.asr.sample_rate
+                // speaker_id removed - backend uses default from config
             })
         });
+        
+        const result = await response.json();
+        
+        // Update ASR transcription (show all accumulated transcripts)
+        if (result.transcription) {
+            conversationUI.updateASR(result.transcription, true);
+        }
+        
+        // If TTS audio is generated, extract the LATEST transcript and send to LLM
+        // The transcription contains all accumulated transcripts with timestamps
+        // Format: "[14:08:36] hello\n[14:08:45] mohi moshi"
+        if (result.audio && result.transcription) {
+            // Extract only the last line (latest transcript)
+            const lines = result.transcription.trim().split('\n');
+            const latestLine = lines[lines.length - 1];
+            
+            // Remove timestamp: "[14:08:36] hello" -> "hello"
+            const latestTranscript = latestLine.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '').trim();
+            
+            // Only send if this is a new, different transcription
+            if (latestTranscript && (!window.lastSentTranscript || window.lastSentTranscript !== latestTranscript)) {
+                console.log(`[LLM] Sending to LLM: "${latestTranscript}"`);
+                window.lastSentTranscript = latestTranscript;
+                await sendToLLM(latestTranscript);
+            } else if (latestTranscript) {
+                console.log(`[LLM] Skipping duplicate: "${latestTranscript}"`);
+            }
+        }
+        
+    } catch (error) {
+        console.error('Audio chunk error:', error);
+    }
+}
 
-        if (response.ok) {
+// ============================================
+// LLM CONVERSATION
+// ============================================
+async function sendToLLM(transcription) {
+    try {
+        // Add to history
+        conversationUI.addToHistory('user', transcription);
+        conversationUI.updateASR(transcription, false);
+        
+        // Start LLM streaming UI
+        conversationUI.startLLMStreaming();
+        conversationUI.updateStatus('processing', 'Thinking', null);
+        
+        // Send to LLM (backend will use default speaker from config)
+        const response = await fetch(`${API_URL}/api/conversation/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: transcription,
+                session_id: sessionId
+                // speaker_id removed - backend uses default from config
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'processing') {
+            // Start polling for audio
+            if (!isPolling) {
+                pollForAudio();
+            }
+        } else if (result.status === 'queued') {
+            conversationUI.updateStatus('processing', 'Queued', `Position ${result.position} in queue`);
+        }
+        
+    } catch (error) {
+        console.error('LLM error:', error);
+        conversationUI.stopLLMStreaming();
+    }
+}
+
+// ============================================
+// AUDIO PLAYBACK QUEUE
+// ============================================
+async function pollForAudio() {
+    isPolling = true;
+    let emptyPollCount = 0;
+    const MAX_EMPTY_POLLS = 20; // Wait up to 10 seconds (20 * 500ms) before giving up
+    
+    console.log('[Polling] Started polling for audio');
+    
+    while (isPolling && emptyPollCount < MAX_EMPTY_POLLS) {
+        try {
+            const response = await fetch(`${API_URL}/api/conversation/audio/next`);
             const result = await response.json();
             
-            // Update transcription
-            if (result.transcription && result.transcription !== 'Listening...') {
-                updateTranscription(result.transcription);
+            if (result.audio_id && result.audio) {
+                // Reset empty poll counter when we get audio
+                emptyPollCount = 0;
+                
+                // Add to audio queue
+                currentAudioQueue.push(result);
+                console.log(`[Polling] Received audio: "${result.text}"`);
+                
+                // Add to conversation history
+                if (result.text) {
+                    conversationUI.appendLLMText(result.text + ' ');
+                    conversationUI.addToHistory('assistant', result.text);
+                }
+                
+                // Start playback if not already playing
+                if (!isPlayingAudio) {
+                    playNextAudio();
+                }
+            } else {
+                // No audio available, increment counter
+                emptyPollCount++;
+                
+                // If we have audio in queue, reset counter (still processing)
+                if (currentAudioQueue.length > 0) {
+                    emptyPollCount = 0;
+                }
             }
-
-            // Play TTS audio
-            if (result.audio) {
-                playTTSAudio(result.audio, result.sample_rate);
-            }
+            
+            // Wait before next poll
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+            
+        } catch (error) {
+            console.error('[Polling] Error:', error);
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
         }
-    } catch (error) {
-        console.error('Error processing audio:', error);
     }
-}
-
-// Update transcription display
-function updateTranscription(text) {
-    // Remove placeholder if exists
-    const placeholder = transcriptionBox.querySelector('.placeholder');
-    if (placeholder) {
-        placeholder.remove();
-    }
-
-    // Parse transcription lines
-    const lines = text.split('\n').filter(line => line.trim());
     
-    // Clear and rebuild
-    transcriptionBox.innerHTML = '';
-    lines.forEach(line => {
-        const div = document.createElement('div');
-        div.className = 'transcript-line';
-        
-        // Extract timestamp and text
-        const match = line.match(/\[(.*?)\] (.*)/);
-        if (match) {
-            const timestamp = match[1];
-            const content = match[2];
-            div.innerHTML = `<span class="timestamp">[${timestamp}]</span>${content}`;
-        } else {
-            div.textContent = line;
-        }
-        
-        transcriptionBox.appendChild(div);
-    });
-
-    // Auto-scroll to bottom
-    transcriptionBox.scrollTop = transcriptionBox.scrollHeight;
+    // Stop polling
+    isPolling = false;
+    console.log('[Polling] Stopped polling');
+    
+    // Only stop LLM streaming if we actually timed out with no audio
+    if (emptyPollCount >= MAX_EMPTY_POLLS && currentAudioQueue.length === 0) {
+        conversationUI.stopLLMStreaming();
+        conversationUI.updateStatus('ready', 'Ready', null);
+    }
 }
 
-// Play TTS audio
-function playTTSAudio(audioB64, sampleRate) {
+async function playNextAudio() {
+    if (currentAudioQueue.length === 0) {
+        isPlayingAudio = false;
+        conversationUI.completeTTSPlayback();
+        return;
+    }
+    
+    isPlayingAudio = true;
+    const audioItem = currentAudioQueue.shift();
+    
     try {
-        // Decode base64
-        const binaryString = atob(audioB64);
+        // Decode base64 audio
+        const binaryString = atob(audioItem.audio);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-
+        
         // Convert to float32
-        const float32Array = new Float32Array(bytes.buffer);
-
-        // Create audio context
-        const audioCtx = new AudioContext({ sampleRate: sampleRate });
-        const audioBuffer = audioCtx.createBuffer(1, float32Array.length, sampleRate);
+        const int16Array = new Int16Array(bytes.buffer);
+        const float32Array = new Float32Array(int16Array.length);
+        for (let i = 0; i < int16Array.length; i++) {
+            float32Array[i] = int16Array[i] / 32768.0;
+        }
+        
+        // Create audio buffer with correct sample rate
+        // Don't force AudioContext sample rate - let it use default and specify buffer sample rate
+        const audioCtx = new AudioContext();
+        const audioBuffer = audioCtx.createBuffer(
+            1,  // mono
+            float32Array.length,
+            audioItem.sample_rate  // Use the actual TTS sample rate (44100)
+        );
         audioBuffer.getChannelData(0).set(float32Array);
-
-        // Create source and play
+        
+        // Play audio
         const source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(audioCtx.destination);
-        source.start(0);
-
-        // Update audio player for visual feedback
-        audioStatus.textContent = `Playing TTS audio (${(float32Array.length / sampleRate).toFixed(2)}s)`;
-        updateStatus('processing', 'Playing TTS...');
-
-        source.onended = () => {
-            if (isRecording) {
-                updateStatus('recording', 'Recording...');
-            } else {
-                updateStatus('ready', 'Ready');
-            }
-        };
-
-    } catch (error) {
-        console.error('Error playing TTS audio:', error);
-        audioStatus.textContent = 'Error playing audio';
-    }
-}
-
-// Reset session
-async function resetSession() {
-    try {
-        await fetch(`${API_URL}/api/stream/reset`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId })
-        });
-
-        // Generate new session ID
-        sessionId = generateSessionId();
-
-        // Clear transcription
-        transcriptionBox.innerHTML = '<p class="placeholder">Transcriptions will appear here...</p>';
         
-        // Reset audio
-        audioPlayer.src = '';
-        audioStatus.textContent = 'No audio generated yet';
-
-        updateStatus('ready', 'Ready');
-
+        // Update UI
+        conversationUI.startTTSPlayback(audioItem.text, 0, currentAudioQueue.length + 1);
+        conversationUI.updateStatus('processing', 'Speaking', null);
+        
+        // Track playback progress
+        const duration = audioBuffer.duration;
+        const startTime = audioCtx.currentTime;
+        const progressInterval = setInterval(() => {
+            const elapsed = audioCtx.currentTime - startTime;
+            const progress = Math.min(100, (elapsed / duration) * 100);
+            conversationUI.updateTTSProgress(progress);
+            
+            if (progress >= 100) {
+                clearInterval(progressInterval);
+            }
+        }, 100);
+        
+        // Handle playback end
+        source.onended = async () => {
+            clearInterval(progressInterval);
+            
+            // Cleanup audio file on server
+            await fetch(`${API_URL}/api/conversation/audio/cleanup?audio_id=${audioItem.audio_id}`, {
+                method: 'POST'
+            });
+            
+            // Play next audio
+            playNextAudio();
+        };
+        
+        source.start(0);
+        
     } catch (error) {
-        console.error('Error resetting session:', error);
+        console.error('Playback error:', error);
+        // Continue to next audio on error
+        playNextAudio();
     }
 }
 
-// Initialize
-updateStatus('ready', 'Ready');
-console.log('STT-TTS Frontend initialized');
+// ============================================
+// EVENT LISTENERS
+// ============================================
+elements.startBtn.addEventListener('click', startRecording);
+elements.stopBtn.addEventListener('click', stopRecording);
+elements.resetBtn.addEventListener('click', resetSession);
+
+// ============================================
+// INITIALIZATION
+// ============================================
+async function loadConfig() {
+    try {
+        const response = await fetch(`${API_URL}/api/config`);
+        CONFIG = await response.json();
+        console.log('Config loaded:', CONFIG);
+        
+        // Update speaker select default value
+        if (elements.speakerSelect) {
+            elements.speakerSelect.value = CONFIG.tts.default_speaker_id;
+        }
+    } catch (error) {
+        console.error('Failed to load config:', error);
+    }
+}
+
+// Load config and initialize
+loadConfig().then(() => {
+    console.log('AI Voice Assistant initialized');
+    conversationUI.updateStatus('ready', 'Ready', null);
+});

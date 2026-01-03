@@ -3,68 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time STT-TTS Pipeline</title>
+    <title>AI Voice Assistant - STT-LLM-TTS Pipeline</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🎙️ Real-Time Speech Pipeline</h1>
-            <p class="subtitle">Powered by NVIDIA NeMo • ASR: Parakeet-CTC-1.1B • TTS: FastPitch + HiFiGAN</p>
+            <h1>🤖 AI Voice Assistant</h1>
+            <p class="subtitle">Real-time STT → LLM → TTS Pipeline • Powered by NVIDIA NeMo & Gemini</p>
         </header>
 
         <div class="main-content">
-            <!-- Left Panel: Controls -->
+            <!-- Controls Panel -->
             <div class="panel controls-panel">
                 <h2>🎛️ Controls</h2>
                 
+                <!-- Speaker Selection -->
                 <div class="control-group">
-                    <label for="speaker-select">TTS Speaker Voice (0-12799)</label>
+                    <label for="speaker-select">Speaker ID (Backend Config)</label>
                     <input 
                         type="number" 
                         id="speaker-select" 
+                        value="92" 
                         min="0" 
-                        max="12799" 
-                        value="92"
-                        placeholder="Enter speaker ID (0-12799)"
+                        max="200"
+                        disabled
+                        placeholder="Managed by backend"
                     >
-                    <small>Enter any speaker ID from 0 to 12799 • Default: 92</small>
+                    <small>Default: 92 (configured in backend)</small>
                 </div>
 
+                <!-- Action Buttons -->
                 <div class="control-group">
                     <button id="start-btn" class="btn btn-primary">
-                        <span class="icon">🎤</span> Start Recording
+                        <span class="icon">🎤</span> Start Conversation
                     </button>
                     <button id="stop-btn" class="btn btn-danger" disabled>
-                        <span class="icon">⏹️</span> Stop Recording
+                        <span class="icon">⏹️</span> Stop
                     </button>
                     <button id="reset-btn" class="btn btn-secondary">
-                        <span class="icon">🔄</span> Reset Session
+                        <span class="icon">🔄</span> Reset
                     </button>
                 </div>
 
+                <!-- Status Indicator -->
                 <div class="status-indicator">
                     <div class="status-dot" id="status-dot"></div>
                     <span id="status-text">Ready</span>
                 </div>
+
+                <!-- Queue Status -->
+                <div class="queue-status" id="queue-status">
+                    <small>Queue: 0 messages</small>
+                </div>
             </div>
 
-            <!-- Right Panel: Transcription & Audio -->
-            <div class="panel output-panel">
-                <h2>📝 Transcription</h2>
-                <div id="transcription-box" class="transcription-box">
-                    <p class="placeholder">Transcriptions will appear here...</p>
+            <!-- Conversation Panel -->
+            <div class="panel conversation-panel">
+                <h2>💬 Conversation</h2>
+                
+                <!-- User Message (ASR) -->
+                <div class="message-section user-section">
+                    <div class="section-header">
+                        <span class="avatar">👤</span>
+                        <span class="label">You</span>
+                        <span class="status-badge" id="asr-status">Ready</span>
+                    </div>
+                    <div class="message-bubble user-bubble" id="user-message">
+                        <div class="typing-indicator" id="asr-typing">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <p id="asr-text">Speak to start...</p>
+                    </div>
                 </div>
 
-                <h2>🔊 TTS Audio Output</h2>
-                <div class="audio-container">
-                    <audio id="audio-player" controls></audio>
-                    <p id="audio-status" class="audio-status">No audio generated yet</p>
+                <!-- Assistant Message (LLM + TTS) -->
+                <div class="message-section assistant-section">
+                    <div class="section-header">
+                        <span class="avatar">🤖</span>
+                        <span class="label">Assistant</span>
+                        <span class="status-badge" id="llm-status">Ready</span>
+                    </div>
+                    <div class="message-bubble assistant-bubble" id="assistant-message">
+                        <p id="llm-text">Waiting for your message...</p>
+                        <span class="cursor-blink" id="llm-cursor">|</span>
+                    </div>
+                    
+                    <!-- TTS Playback Status -->
+                    <div class="tts-status" id="tts-status-container">
+                        <div class="tts-header">
+                            <span class="icon">🔊</span>
+                            <span id="tts-text">Ready to speak</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="tts-progress"></div>
+                        </div>
+                        <div class="tts-queue">
+                            <span id="queue-count">Queue: 0 sentences</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conversation History -->
+                <div class="history-section">
+                    <h3>📜 History</h3>
+                    <div id="conversation-history" class="conversation-history">
+                        <p class="placeholder">Conversation history will appear here...</p>
+                    </div>
                 </div>
             </div>
         </div>
-
-
     </div>
 
     <script src="app.js"></script>
