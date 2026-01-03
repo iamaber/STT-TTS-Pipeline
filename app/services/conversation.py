@@ -14,13 +14,14 @@ class ConversationManager:
         self.current_response_id = None
         self.current_session_id = None
 
-    async def add_user_input(self, text: str, session_id: str) -> dict:
+    async def add_user_input(self, text: str, session_id: str, speaker_id: int = None) -> dict:
         """
         Add user input to queue.
 
         Args:
             text: User's message text
             session_id: Session identifier
+            speaker_id: TTS speaker ID (optional, uses default if None)
 
         Returns:
             Dict with status and position info
@@ -28,6 +29,7 @@ class ConversationManager:
         input_item = {
             "text": text,
             "session_id": session_id,
+            "speaker_id": speaker_id,  # Store speaker_id for later use
             "timestamp": datetime.now().isoformat(),
             "status": "queued",
         }
