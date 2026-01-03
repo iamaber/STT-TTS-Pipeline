@@ -17,7 +17,7 @@ class TTSConfig(BaseSettings):
     vocoder_model: str = "model_files/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
     sample_rate: int = 44100
     device: str = "cuda"
-    default_speaker_id: int = 50
+    default_speaker_id: int = 92  # Changed from 50 to 92
     max_text_length: int = 300
     min_audio_duration: float = 0.7  # Minimum audio duration in seconds (for Gradio compatibility)
 
@@ -36,12 +36,33 @@ class StreamingConfig(BaseSettings):
     silence_trigger_count: int = 2  # Number of silence frames before checking transcription (~0.25s)
 
 
+class LLMConfig(BaseSettings):
+    """LLM (Large Language Model) configuration"""
+    provider: str = "gemini"
+    model_name: str = "gemini-2.5-flash"
+    api_key: str = Field(default="", description="Gemini API key")
+    temperature: float = 0.7
+    max_tokens: int = 2048
+    streaming: bool = True
+    system_prompt: str = "You are a helpful voice assistant. Keep responses concise and natural for speech. Respond in complete sentences."
+
+
+class QueueConfig(BaseSettings):
+    """Queue management configuration"""
+    max_user_queue_size: int = 5
+    max_tts_queue_size: int = 10
+    audio_temp_dir: str = "temp_audio"
+    cleanup_after_play: bool = True
+
+
 class Settings(BaseSettings):
     """Main application settings"""
     asr: ASRConfig = ASRConfig()
     tts: TTSConfig = TTSConfig()
     vad: VADConfig = VADConfig()
     streaming: StreamingConfig = StreamingConfig()
+    llm: LLMConfig = LLMConfig()
+    queue: QueueConfig = QueueConfig()
     
     # Server configuration
     host: str = "0.0.0.0"
@@ -91,3 +112,31 @@ class ResetResponse(BaseModel):
     """Response model for session reset"""
     status: str
     session_id: str
+
+
+# Conversation API Models
+class ConversationRequest(BaseModel):
+    """Request model for conversation with LLM"""
+    text: str = Field(..., description="User message text")
+    session_id: str = Field(..., description="Unique session identifier")
+    speaker_id: int | None = Field(None, description="TTS speaker ID (0-12799)")
+
+
+class ConversationResponse(BaseModel):
+    """Response model for conversation initiation"""
+    status: str  # "processing" or "queued"
+    response_id: str | None = None
+    position: int | None = None
+
+
+class AudioQueueResponse(BaseModel):
+    """Response model for audio queue polling"""
+    audio_id: str | None
+    audio: str | None  # Base64 encoded
+    sample_rate: int | None
+    text: str | None
+
+
+class CleanupResponse(BaseModel):
+    """Response model for audio cleanup"""
+    status: str
