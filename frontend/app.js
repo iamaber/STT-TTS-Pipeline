@@ -3,7 +3,7 @@ const API_URL = window.location.origin;
 // Configuration loaded from backend
 let CONFIG = {
     asr: { sample_rate: 16000, chunk_size_ms: 100 },
-    tts: { sample_rate: 44100, default_speaker_id: 92 },
+    tts: { sample_rate: 44100, default_speaker_id: 50 },  // Will be updated from backend
     streaming: { sample_rate: 16000, max_buffer_seconds: 60 },
     llm_enabled: false
 };
@@ -21,6 +21,8 @@ let isRecording = false;
 let currentAudioQueue = [];
 let isPlayingAudio = false;
 let isPolling = false;
+let currentAudioSource = null;  // Track current audio source for interruption
+let audioPlaybackContext = null;  // Reuse AudioContext for playback
 
 // ============================================
 // DOM ELEMENTS
@@ -98,29 +100,16 @@ class ConversationUI {
     }
     
     appendLLMText(text) {
-        // Add text with streaming animation (character by character)
-        const newText = this.currentLLMText + text;
-        this.animateText(this.currentLLMText, newText);
-        this.currentLLMText = newText;
-    }
-    
-    animateText(fromText, toText) {
-        // Animate from current text to new text
-        const newChars = toText.substring(fromText.length);
-        let charIndex = 0;
-        
-        const animate = () => {
-            if (charIndex < newChars.length) {
-                elements.llmText.textContent += newChars[charIndex];
-                charIndex++;
-                // Faster animation: 20ms per character
-                setTimeout(animate, 20);
-                // Auto-scroll to show latest text
-                elements.llmText.scrollTop = elements.llmText.scrollHeight;
-            }
-        };
-        
-        animate();
+        // Append with a guaranteed single separating space to avoid stuck words
+        const chunk = text.trim();
+        if (!chunk) return;
+        if (this.currentLLMText && !this.currentLLMText.endsWith(' ')) {
+            this.currentLLMText += ' ';
+        }
+        this.currentLLMText += chunk + ' ';
+        elements.llmText.textContent = this.currentLLMText;
+        // Auto-scroll to show latest text
+        elements.llmText.scrollTop = elements.llmText.scrollHeight;
     }
     
     completeLLMSentence() {
@@ -277,6 +266,25 @@ function stopRecording() {
     console.log('Recording stopped');
 }
 
+
+function stopAudio() {
+    // Stop currently playing audio
+    if (currentAudioSource) {
+        try {
+            currentAudioSource.stop();
+            currentAudioSource = null;
+        } catch (e) {
+            // Already stopped
+        }
+    }
+    
+    // Clear audio queue
+    currentAudioQueue = [];
+    isPlayingAudio = false;
+    
+    console.log('Audio playback stopped');
+}
+
 async function resetSession() {
     // Stop recording if active
     if (isRecording) {
@@ -381,6 +389,11 @@ async function sendAudioChunk(audioData) {
             conversationUI.updateASR(result.transcription, true);
         }
         
+        // Stop any playing audio when new speech is detected
+        if (result.transcription && isPlayingAudio) {
+            stopAudio();
+        }
+        
         // If TTS audio is generated, extract the LATEST transcript and send to LLM
         // The transcription contains all accumulated transcripts with timestamps
         // Format: "[14:08:36] hello\n[14:08:45] mohi moshi"
@@ -420,14 +433,18 @@ async function sendToLLM(transcription) {
         conversationUI.startLLMStreaming();
         conversationUI.updateStatus('processing', 'Thinking', null);
         
-        // Send to LLM (backend will use default speaker from config)
+        // Get speaker ID from input
+        const speakerInput = document.getElementById('speaker-select');
+        const speakerId = speakerInput ? parseInt(speakerInput.value) : CONFIG.tts.default_speaker_id;
+        
+        // Send to LLM with speaker ID
         const response = await fetch(`${API_URL}/api/conversation/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 text: transcription,
-                session_id: sessionId
-                // speaker_id removed - backend uses default from config
+                session_id: sessionId,
+                speaker_id: speakerId  // Use speaker ID from input
             })
         });
         
@@ -522,23 +539,32 @@ async function playNextAudio() {
     const audioItem = currentAudioQueue.shift();
     
     try {
-        // Decode base64 audio
+        // Decode base64 audio properly
+        console.log(`[DECODE START] b64 length: ${audioItem.audio.length} chars`);
         const binaryString = atob(audioItem.audio);
+        console.log(`[DECODE] Binary string: ${binaryString.length} chars`);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
+        console.log(`[DECODE] Bytes: ${bytes.length} bytes`);
         
-        // Convert to float32
-        const int16Array = new Int16Array(bytes.buffer);
+        // Create Int16Array from byte buffer
+        const int16Array = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+        console.log(`[DECODE] Int16 samples: ${int16Array.length}`);
         const float32Array = new Float32Array(int16Array.length);
         for (let i = 0; i < int16Array.length; i++) {
             float32Array[i] = int16Array[i] / 32768.0;
         }
         
-        // Create audio buffer with correct sample rate
-        // Don't force AudioContext sample rate - let it use default and specify buffer sample rate
-        const audioCtx = new AudioContext();
+        const expectedDuration = float32Array.length / audioItem.sample_rate;
+        console.log(`[PLAYBACK] "${audioItem.text.substring(0, 60)}..." -> ${float32Array.length} samples, ${audioItem.sample_rate}Hz, ${expectedDuration.toFixed(2)}s`);
+        
+        // Create or reuse AudioContext
+        if (!audioPlaybackContext || audioPlaybackContext.state === 'closed') {
+            audioPlaybackContext = new AudioContext();
+        }
+        const audioCtx = audioPlaybackContext;
         const audioBuffer = audioCtx.createBuffer(
             1,  // mono
             float32Array.length,
@@ -572,6 +598,11 @@ async function playNextAudio() {
         source.onended = async () => {
             clearInterval(progressInterval);
             
+            // Clear reference
+            if (currentAudioSource === source) {
+                currentAudioSource = null;
+            }
+            
             // Cleanup audio file on server
             await fetch(`${API_URL}/api/conversation/audio/cleanup?audio_id=${audioItem.audio_id}`, {
                 method: 'POST'
@@ -581,6 +612,8 @@ async function playNextAudio() {
             playNextAudio();
         };
         
+        // Store reference for interruption
+        currentAudioSource = source;
         source.start(0);
         
     } catch (error) {
@@ -603,13 +636,18 @@ elements.resetBtn.addEventListener('click', resetSession);
 async function loadConfig() {
     try {
         const response = await fetch(`${API_URL}/api/config`);
-        CONFIG = await response.json();
-        console.log('Config loaded:', CONFIG);
+        const config = await response.json();
         
-        // Update speaker select default value
-        if (elements.speakerSelect) {
-            elements.speakerSelect.value = CONFIG.tts.default_speaker_id;
+        // Update global CONFIG
+        CONFIG = config;
+        
+        // Update speaker ID input to show backend value
+        const speakerInput = document.getElementById('speaker-select');
+        if (speakerInput) {
+            speakerInput.value = config.tts.default_speaker_id;
         }
+        
+        console.log('Config loaded:', CONFIG);
     } catch (error) {
         console.error('Failed to load config:', error);
     }
