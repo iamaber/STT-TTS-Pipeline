@@ -37,7 +37,7 @@ class StreamingConfig(BaseSettings):
 
     sample_rate: int = 16000
     max_buffer_seconds: int = 30
-    silence_trigger_count: int = 2
+    silence_trigger_count: int = 1
 
 
 class LLMConfig(BaseSettings):
