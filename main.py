@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import asyncio
+import time
+import uuid
 
 from app.services.pipeline import Pipeline
 from app.services.streaming import StreamingSession, process_streaming_audio
@@ -46,6 +48,12 @@ streaming_sessions = {}
 llm_service = None
 conversation_manager = None
 tts_queue_manager = None
+
+
+def _log(event: str, **kwargs):
+    """Lightweight structured log helper."""
+    kv = " ".join(f"{k}={v}" for k, v in kwargs.items())
+    print(f"[{event}] {kv}")
 
 
 @app.on_event("startup")
@@ -103,6 +111,9 @@ async def stt_tts(request: STTTTSRequest) -> TTSResponse:
     Returns:
         Transcription and synthesized audio
     """
+    req_id = str(uuid.uuid4())
+    t0 = time.time()
+
     # Decode audio
     audio_data = decode_audio(request.audio)
 
@@ -116,6 +127,14 @@ async def stt_tts(request: STTTTSRequest) -> TTSResponse:
     # Encode TTS audio
     tts_b64 = encode_audio(tts_audio)
 
+    _log(
+        "stt_tts",
+        req_id=req_id,
+        duration_ms=int((time.time() - t0) * 1000),
+        transcription_len=len(transcription or ""),
+        audio_samples=len(tts_audio),
+    )
+
     return TTSResponse(
         transcription=transcription, audio=tts_b64, sample_rate=settings.tts.sample_rate
     )
@@ -124,6 +143,8 @@ async def stt_tts(request: STTTTSRequest) -> TTSResponse:
 @app.post("/api/stream/process", response_model=StreamingResponse)
 async def stream_process(request: StreamingRequest) -> StreamingResponse:
     """Process streaming audio chunk with semantic sentence detection."""
+    req_id = str(uuid.uuid4())
+    t0 = time.time()
     # Get or create session
     if request.session_id not in streaming_sessions:
         streaming_sessions[request.session_id] = StreamingSession()
@@ -151,6 +172,16 @@ async def stream_process(request: StreamingRequest) -> StreamingResponse:
     tts_b64 = None
     if tts_audio is not None and len(tts_audio) > 0:
         tts_b64 = encode_audio(tts_audio)
+
+    _log(
+        "stream_process",
+        req_id=req_id,
+        session_id=request.session_id,
+        duration_ms=int((time.time() - t0) * 1000),
+        transcript_chars=len(transcripts or ""),
+        audio_samples=len(tts_audio) if tts_audio is not None else 0,
+        is_speech_start=is_speech_start,
+    )
 
     return StreamingResponse(
         transcription=transcripts, audio=tts_b64, sample_rate=tts_sr
@@ -191,9 +222,6 @@ async def send_message(request: ConversationRequest) -> ConversationResponse:
             status="queued", response_id=None, position=queue_status["position"]
         )
 
-    # Process immediately
-    import uuid
-
     response_id = str(uuid.uuid4())
     conversation_manager.current_response_id = response_id
 
@@ -210,6 +238,8 @@ async def process_llm_streaming(
     user_text: str, speaker_id: int, response_id: str, session_id: str
 ):
     """Process LLM streaming and queue TTS generation"""
+    t_start = time.time()
+    sentences = 0
     conversation_manager.is_processing = True
     conversation_manager.current_session_id = session_id
     conversation_manager.add_to_history("user", user_text)
@@ -230,11 +260,19 @@ async def process_llm_streaming(
             # This prevents audio cutoff and long delays
             conversation_manager.add_to_history("assistant", cleaned)
             await tts_queue_manager.add_to_tts_queue(cleaned, speaker_id)
+            sentences += 1
 
     except Exception as e:
         print(f"LLM streaming error: {e}")
 
     conversation_manager.is_processing = False
+    _log(
+        "llm_stream_complete",
+        session_id=session_id,
+        response_id=response_id,
+        sentences=sentences,
+        duration_ms=int((time.time() - t_start) * 1000),
+    )
 
     # Process next queued input if any
     next_input = await conversation_manager.get_next_input()

@@ -1,3 +1,4 @@
+import asyncio
 import re
 import httpx
 from typing import AsyncIterator
@@ -8,7 +9,7 @@ from app.config import settings
 class LLMService:
     def __init__(self):
         self.api_url = settings.llm.api_url
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=30.0))
         print(f"LLM Service initialized: {self.api_url}")
 
     async def clear_memory(self) -> bool:
@@ -60,59 +61,68 @@ class LLMService:
         sentence_buffer = ""
         in_code_block = False
 
-        try:
-            async with self.client.stream(
-                "POST", self.api_url, json=payload
-            ) as response:
-                response.raise_for_status()
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                async with self.client.stream(
+                    "POST", self.api_url, json=payload
+                ) as response:
+                    response.raise_for_status()
 
-                # SSE format - word-by-word streaming
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
+                    # SSE format - word-by-word streaming
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
 
-                    raw_chunk = line[6:]
-                    chunk = raw_chunk.rstrip("\r\n")
-                    marker = chunk.strip()
+                        raw_chunk = line[6:]
+                        chunk = raw_chunk.rstrip("\r\n")
+                        marker = chunk.strip()
 
-                    if not marker or marker == "[DONE]":
-                        continue
+                        if not marker or marker == "[DONE]":
+                            continue
 
-                    # Track code blocks
-                    if "```" in chunk:
-                        in_code_block = not in_code_block
-                        continue
+                        # Track code blocks
+                        if "```" in chunk:
+                            in_code_block = not in_code_block
+                            continue
 
-                    # Skip if in code block
-                    if in_code_block:
-                        continue
+                        # Skip if in code block
+                        if in_code_block:
+                            continue
 
-                    # Skip undesirable content
-                    if self._should_skip_line(chunk):
-                        continue
+                        # Skip undesirable content
+                        if self._should_skip_line(chunk):
+                            continue
 
-                    # Preserve spacing from stream; add a space only if missing
-                    sentence_buffer += chunk
-                    if not chunk.endswith(" "):
-                        sentence_buffer += " "
+                        # Preserve spacing from stream; add a space only if missing
+                        sentence_buffer += chunk
+                        if not chunk.endswith(" "):
+                            sentence_buffer += " "
 
-                    # Extract and yield complete sentences
-                    complete_sentences, sentence_buffer = self._extract_sentences(
-                        sentence_buffer
-                    )
-                    for sentence in complete_sentences:
-                        yield sentence
+                        # Extract and yield complete sentences
+                        complete_sentences, sentence_buffer = self._extract_sentences(
+                            sentence_buffer
+                        )
+                        for sentence in complete_sentences:
+                            yield sentence
 
-            # Yield remaining text
-            if sentence_buffer.strip():
-                yield sentence_buffer.strip()
+                # Yield remaining text
+                if sentence_buffer.strip():
+                    yield sentence_buffer.strip()
+                return
 
-        except httpx.HTTPError as e:
-            print(f"LLM HTTP error: {e}")
-            yield f"Error connecting to LLM: {str(e)}"
-        except Exception as e:
-            print(f"LLM error: {e}")
-            yield f"Error: {str(e)}"
+            except httpx.HTTPError as e:
+                print(f"LLM HTTP error attempt {attempt}/{attempts}: {e}")
+                if attempt == attempts:
+                    yield f"Error connecting to LLM: {str(e)}"
+                else:
+                    await asyncio.sleep(0.5 * attempt)
+            except Exception as e:
+                print(f"LLM error attempt {attempt}/{attempts}: {e}")
+                if attempt == attempts:
+                    yield f"Error: {str(e)}"
+                else:
+                    await asyncio.sleep(0.5 * attempt)
 
     def _extract_sentences(self, text: str) -> tuple[list[str], str]:
         """

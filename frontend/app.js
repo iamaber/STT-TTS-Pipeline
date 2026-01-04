@@ -594,11 +594,14 @@ async function playNextAudio() {
         const expectedDuration = float32Array.length / audioItem.sample_rate;
         console.log(`[PLAYBACK] "${audioItem.text.substring(0, 60)}..." -> ${float32Array.length} samples, ${audioItem.sample_rate}Hz, ${expectedDuration.toFixed(2)}s`);
         
-        // Create or reuse AudioContext
+        // Create or reuse AudioContext and ensure it is resumed (user gesture already occurred)
         if (!audioPlaybackContext || audioPlaybackContext.state === 'closed') {
             audioPlaybackContext = new AudioContext();
         }
         const audioCtx = audioPlaybackContext;
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+        }
         const audioBuffer = audioCtx.createBuffer(
             1,  // mono
             float32Array.length,
@@ -609,7 +612,18 @@ async function playNextAudio() {
         // Play audio
         const source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
-        source.connect(audioCtx.destination);
+
+        // Add gentle fade-in/out to avoid clicks
+        const gainNode = audioCtx.createGain();
+        const now = audioCtx.currentTime;
+        gainNode.gain.setValueAtTime(0.0, now);
+        gainNode.gain.linearRampToValueAtTime(1.0, now + 0.05);
+        const fadeOutStart = now + Math.max(0, audioBuffer.duration - 0.05);
+        gainNode.gain.setValueAtTime(1.0, fadeOutStart);
+        gainNode.gain.linearRampToValueAtTime(0.0, fadeOutStart + 0.05);
+
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
         
         // Update UI
         conversationUI.startTTSPlayback(audioItem.text, 0, currentAudioQueue.length + 1);
