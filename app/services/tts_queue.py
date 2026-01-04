@@ -1,11 +1,9 @@
 import asyncio
 from collections import deque
-from pathlib import Path
-import uuid
 from typing import Optional
-import soundfile as sf
 
 from app.config import settings
+from app.utils.audio import encode_audio
 
 
 class TTSQueueManager:
@@ -16,27 +14,15 @@ class TTSQueueManager:
         self.tts_queue = deque(maxlen=settings.queue.max_tts_queue_size)
         self.audio_queue = deque()
         self.is_generating = False
-        self.temp_dir = Path(settings.queue.audio_temp_dir)
-        self.temp_dir.mkdir(exist_ok=True, parents=True)
-
-        print(f"TTS Queue Manager initialized: {self.temp_dir}")
 
     async def add_to_tts_queue(self, text: str, speaker_id: int) -> str:
-        """
-        Add text to TTS generation queue.
+        """Add text to TTS generation queue."""
+        import uuid
 
-        Args:
-            text: Text to synthesize
-            speaker_id: TTS speaker ID
-
-        Returns:
-            Unique ID for this TTS item
-        """
         item = {
             "id": str(uuid.uuid4()),
             "text": text,
             "speaker_id": speaker_id,
-            "status": "queued",
         }
         self.tts_queue.append(item)
 
@@ -54,63 +40,47 @@ class TTSQueueManager:
             item = self.tts_queue.popleft()
 
             try:
-                # Generate TTS audio in thread pool to avoid blocking
-                import asyncio
+                # Generate TTS audio
                 loop = asyncio.get_event_loop()
                 audio = await loop.run_in_executor(
-                    None,  # Use default executor
+                    None,
                     self.pipeline.process_text_to_audio,
                     item["text"],
-                    item["speaker_id"]
+                    item["speaker_id"],
                 )
 
-                # Save to temporary file
-                audio_path = self.temp_dir / f"{item['id']}.wav"
-                sf.write(audio_path, audio, settings.tts.sample_rate)
+                # Encode audio to base64
+                audio_b64 = encode_audio(audio)
 
                 # Add to audio playback queue
                 self.audio_queue.append(
                     {
                         "id": item["id"],
-                        "path": str(audio_path),
+                        "audio": audio_b64,
+                        "sample_rate": settings.tts.sample_rate,
                         "text": item["text"],
-                        "status": "ready",
                     }
                 )
 
-                print(f"TTS generated: {item['text'][:50]}... ({len(audio)} samples)")
+                duration = len(audio) / settings.tts.sample_rate
+                print(
+                    f"[TTS QUEUE] '{item['text'][:60]}...' -> {len(audio)} samples ({duration:.2f}s), b64: {len(audio_b64)} chars"
+                )
 
             except Exception as e:
-                print(f"TTS generation error for '{item['text']}': {e}")
+                print(f"TTS error for '{item['text']}': {e}")
 
         self.is_generating = False
 
     async def get_next_audio(self) -> Optional[dict]:
-        """
-        Get next audio from playback queue.
-
-        Returns:
-            Audio item dict or None
-        """
+        """Get next audio from playback queue."""
         if self.audio_queue:
             return self.audio_queue.popleft()
         return None
 
     def cleanup_audio(self, audio_id: str):
-        """
-        Remove temporary audio file after playback.
-
-        Args:
-            audio_id: Audio item ID
-        """
-        if settings.queue.cleanup_after_play:
-            audio_path = self.temp_dir / f"{audio_id}.wav"
-            if audio_path.exists():
-                try:
-                    audio_path.unlink()
-                    print(f"Cleaned up audio: {audio_id}")
-                except Exception as e:
-                    print(f"Cleanup error for {audio_id}: {e}")
+        """Cleanup audio (no-op for in-memory mode)."""
+        pass
 
     def get_queue_sizes(self) -> dict:
         """Get current queue sizes"""
