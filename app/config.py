@@ -47,7 +47,7 @@ class LLMConfig(BaseSettings):
 
     # Custom LLM API settings
     api_url: str = "http://192.168.10.2:8000/api/stream"
-    max_tokens: int = 256
+    max_tokens: int = 200
     temperature: float = 0.5
     top_p: float = 0.9
     include_chat_history: bool = True

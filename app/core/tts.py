@@ -96,7 +96,6 @@ class TTS:
         self,
         text: str,
         speaker: int = None,
-        pace: float = 1.0,
         output: Optional[str] = None,
     ):
         chunks = self._split_text(text)
@@ -105,8 +104,10 @@ class TTS:
         for chunk in chunks:
             with torch.no_grad():
                 tokens = self.fastpitch.parse(chunk)
+                # FastPitch doesn't support pace parameter directly
+                # Duration is controlled via duration_tgt or other parameters
                 spec = self.fastpitch.generate_spectrogram(
-                    tokens=tokens, speaker=speaker, pace=pace
+                    tokens=tokens, speaker=speaker
                 )
                 audio = self.hifigan.convert_spectrogram_to_audio(spec=spec)
 
@@ -128,9 +129,11 @@ class TTS:
             return np.array([], dtype=np.float32)
 
         combined_audio = np.concatenate(audio_chunks)
-        
+
         # Debug: Log audio generation
-        print(f"TTS generated: {text[:50]}... ({len(combined_audio)} samples, {len(combined_audio)/self.sample_rate:.2f}s)")
+        print(
+            f"TTS generated: {text[:50]}... ({len(combined_audio)} samples, {len(combined_audio) / self.sample_rate:.2f}s)"
+        )
 
         # Add silence padding for very short audio (for frontend compatibility)
         min_samples = int(self.min_audio_duration * self.sample_rate)
@@ -184,7 +187,7 @@ class TTS:
                 print(f"TTS: Invalid speaker, using {speaker}")
 
         try:
-            audio = self.generate(text, speaker=speaker, pace=1.0)
+            audio = self.generate(text, speaker=speaker)
 
             return audio
         except Exception as e:

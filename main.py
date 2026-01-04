@@ -214,8 +214,6 @@ async def process_llm_streaming(
     conversation_manager.current_session_id = session_id
     conversation_manager.add_to_history("user", user_text)
 
-    tts_buffer = ""  # Buffer multiple sentences for better audio
-
     try:
         async for sentence in llm_service.generate(user_text):
             # Clean sentence
@@ -228,25 +226,13 @@ async def process_llm_streaming(
             if not cleaned:
                 continue
 
-            # Buffer sentences together (2-3 sentences for better audio)
-            tts_buffer += " " + cleaned if tts_buffer else cleaned
-
-            # Send to TTS every 2-3 sentences or on punctuation
-            sentence_count = (
-                tts_buffer.count(".") + tts_buffer.count("!") + tts_buffer.count("?")
-            )
-            if sentence_count >= 2 or len(tts_buffer) > 200:
-                conversation_manager.add_to_history("assistant", tts_buffer)
-                await tts_queue_manager.add_to_tts_queue(tts_buffer, speaker_id)
-                tts_buffer = ""
+            # Send immediately to TTS as soon as we get a sentence
+            # This prevents audio cutoff and long delays
+            conversation_manager.add_to_history("assistant", cleaned)
+            await tts_queue_manager.add_to_tts_queue(cleaned, speaker_id)
 
     except Exception as e:
         print(f"LLM streaming error: {e}")
-
-    # Send remaining buffered text
-    if tts_buffer.strip():
-        conversation_manager.add_to_history("assistant", tts_buffer)
-        await tts_queue_manager.add_to_tts_queue(tts_buffer, speaker_id)
 
     conversation_manager.is_processing = False
 
