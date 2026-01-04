@@ -1,3 +1,4 @@
+from omegaconf import OmegaConf
 from typing import Optional
 from app.core.vad import SileroVAD
 from app.core.asr import ASRModel
@@ -15,6 +16,25 @@ class Pipeline:
         self.asr = ASRModel(
             model_path=settings.asr.model_name, device=settings.asr.device
         )
+        
+        # Helper for setting decoding strategy safely
+        try:
+            # Check if using a model that supports validation configuration
+            # Some older NeMo models or specific classes might differ
+            
+            # Default to greedy batch which is faster
+            decoding_cfg = OmegaConf.create({
+                "strategy": "greedy_batch", 
+                "preserve_alignments": False, 
+                "compute_timestamps": False
+            })
+            
+            if hasattr(self.asr, 'asr_model') and hasattr(self.asr.asr_model, 'change_decoding_strategy'):
+                 self.asr.asr_model.change_decoding_strategy(decoding_cfg)
+                 print("ASR decoding strategy set to: greedy_batch")
+        except Exception as e:
+            print(f"Warning: Could not set ASR decoding strategy: {e}")
+            print("Continuing with default strategy.")
         
         # Warmup ASR BEFORE loading TTS to avoid CUDA conflicts
         self.asr.warmup()
