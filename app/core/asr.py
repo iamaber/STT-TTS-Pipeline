@@ -13,7 +13,6 @@ torch.set_float32_matmul_precision("high")  # Faster matmul
 
 
 class ASRModel:
-
     def __init__(self, model_path: str, device: str = "cuda", verbose: bool = True):
         self.verbose = verbose
         self._warmed_up = False
@@ -42,10 +41,12 @@ class ASRModel:
         self.model = self.model.to(self.device)
         self.model.freeze()
         self.model.eval()
-        
+
         # Set decoding strategy to greedy_batch for better performance
         try:
-            self.model.change_decoding_strategy(decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"})
+            self.model.change_decoding_strategy(
+                decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"}
+            )
             if verbose:
                 print("Using greedy_batch decoding strategy")
         except Exception as e:
