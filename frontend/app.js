@@ -247,6 +247,21 @@ async function startRecording() {
 function stopRecording() {
     isRecording = false;
     
+    // Stop LLM generation and audio playback
+    isPolling = false;
+    currentAudioQueue = [];
+    isPlayingAudio = false;
+    
+    // Stop currently playing audio
+    if (currentAudioSource) {
+        try {
+            currentAudioSource.stop();
+            currentAudioSource = null;
+        } catch (e) {
+            // Already stopped
+        }
+    }
+    
     // Cleanup audio resources
     if (audioWorkletNode) {
         audioWorkletNode.disconnect();
@@ -262,8 +277,10 @@ function stopRecording() {
     elements.stopBtn.disabled = true;
     conversationUI.updateStatus('ready', 'Ready', null);
     conversationUI.updateASR('', false);
+    conversationUI.stopLLMStreaming();
+    conversationUI.completeTTSPlayback();
     
-    console.log('Recording stopped');
+    console.log('Recording and generation stopped');
 }
 
 
@@ -305,6 +322,17 @@ async function resetSession() {
         } catch (error) {
             console.error('Reset error:', error);
         }
+    }
+    
+    // Clear external LLM memory
+    try {
+        await fetch('http://192.168.10.2:8000/api/memory/clear', {
+            method: 'POST',
+            headers: { 'accept': 'application/json' }
+        });
+        console.log('External LLM memory cleared');
+    } catch (error) {
+        console.error('Failed to clear external LLM memory:', error);
     }
     
     // Reset UI
@@ -387,11 +415,17 @@ async function sendAudioChunk(audioData) {
         // Update ASR transcription (show all accumulated transcripts)
         if (result.transcription) {
             conversationUI.updateASR(result.transcription, true);
-        }
-        
-        // Stop any playing audio when new speech is detected
-        if (result.transcription && isPlayingAudio) {
-            stopAudio();
+            
+            // Only stop playback if this is NEW speech (different from last sent to LLM)
+            const lines = result.transcription.trim().split('\n');
+            const latestLine = lines[lines.length - 1];
+            const latestTranscript = latestLine.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '').trim();
+            
+            // Stop audio only if we detect genuinely new speech
+            if (latestTranscript && window.lastSentTranscript && latestTranscript !== window.lastSentTranscript && isPlayingAudio) {
+                console.log('[INTERRUPT] New speech detected, stopping playback');
+                stopAudio();
+            }
         }
         
         // If TTS audio is generated, extract the LATEST transcript and send to LLM

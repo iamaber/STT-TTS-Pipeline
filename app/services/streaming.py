@@ -135,15 +135,20 @@ def process_streaming_audio(
     audio_data: np.ndarray,
     sample_rate: int,
     speaker_id: int = None,
-) -> tuple[str, np.ndarray | None, int | None]:
+) -> tuple[str, np.ndarray | None, int | None, bool]:
     if speaker_id is None:
         speaker_id = settings.tts.default_speaker_id
 
     # Add audio and check if we should transcribe
+    # check_type is "transcribe", "speech_start", or None
     should_check, chunk, reason = session.add_audio(audio_data, sample_rate)
+    
+    # Check if speech just started (interruption)
+    is_speech_start = (reason == "speech_start")
 
+    # If nothing to check or no audio chunk, return early
     if not should_check or chunk is None:
-        return session.get_transcripts() or "Listening...", None, None
+        return session.get_transcripts() or "Listening...", None, None, is_speech_start
 
     # Transcribe the accumulated audio
     transcription = pipeline.process_audio_to_text(
@@ -153,7 +158,7 @@ def process_streaming_audio(
     # Check if transcription is valid (not empty)
     if not transcription or not transcription.strip():
         session.clear_buffer()
-        return session.get_transcripts() or "Listening...", None, None
+        return session.get_transcripts() or "Listening...", None, None, is_speech_start
 
     # Check if sentence is complete (has ending punctuation)
     text = transcription.strip()
@@ -170,13 +175,21 @@ def process_streaming_audio(
 
     if not should_process:
         session.consecutive_silence = 0
-        return session.get_transcripts() or "Listening...", None, None
+        return session.get_transcripts() or "Listening...", None, None, is_speech_start
 
     # Process complete sentence
-    session.add_transcript(transcription)
+    session.add_transcript(text)
     session.clear_buffer()
 
     # Generate TTS
-    tts_audio = pipeline.process_text_to_audio(transcription, speaker_id)
+    output_audio = None
+    output_sr = None
+    
+    try:
+        if pipeline:
+            output_audio = pipeline.process_text_to_audio(text, speaker_id)
+            output_sr = settings.tts.sample_rate
+    except Exception as e:
+        print(f"TTS generation failed: {e}")
 
-    return session.get_transcripts(), tts_audio, settings.tts.sample_rate
+    return session.get_transcripts(), output_audio, output_sr, is_speech_start

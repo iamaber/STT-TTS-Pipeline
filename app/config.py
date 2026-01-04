@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 class ASRConfig(BaseSettings):
     """ASR (Automatic Speech Recognition) configuration"""
 
-    model_name: str = "model_files/asr/parakeet-ctc-1.1b.nemo"
+    model_name: str = "models/asr/parakeet-ctc-1.1b.nemo"
     sample_rate: int = 16000
     chunk_size_ms: int = 100
     streaming: bool = True
@@ -15,13 +15,11 @@ class ASRConfig(BaseSettings):
 class TTSConfig(BaseSettings):
     """TTS (Text-to-Speech) configuration"""
 
-    acoustic_model: str = "model_files/tts_acoustic/tts_en_fastpitch_multispeaker.nemo"
-    vocoder_model: str = (
-        "model_files/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
-    )
+    acoustic_model: str = "models/tts_acoustic/tts_en_fastpitch_multispeaker.nemo"
+    vocoder_model: str = "models/tts_vocoder/tts_en_hifitts_hifigan_ft_fastpitch.nemo"
     sample_rate: int = 44100
     device: str = "cuda"
-    default_speaker_id: int = 50
+    default_speaker_id: int = 92
     max_text_length: int = 500
     min_audio_duration: float = 0.1  # Minimal padding
 
@@ -30,16 +28,16 @@ class VADConfig(BaseSettings):
     """VAD (Voice Activity Detection) configuration"""
 
     threshold: float = 0.5
-    min_speech_duration_ms: int = 200
-    min_silence_duration_ms: int = 300
+    min_speech_duration_ms: int = 150
+    min_silence_duration_ms: int = 200
 
 
 class StreamingConfig(BaseSettings):
     """Real-time streaming configuration"""
 
     sample_rate: int = 16000
-    max_buffer_seconds: int = 60
-    silence_trigger_count: int = 2
+    max_buffer_seconds: int = 30
+    silence_trigger_count: int = 1
 
 
 class LLMConfig(BaseSettings):
@@ -48,7 +46,7 @@ class LLMConfig(BaseSettings):
     # Custom LLM API settings
     api_url: str = "http://192.168.10.2:8000/api/stream"
     max_tokens: int = 200
-    temperature: float = 0.5
+    temperature: float = 0.7
     top_p: float = 0.9
     include_chat_history: bool = True
     context: str = ""
