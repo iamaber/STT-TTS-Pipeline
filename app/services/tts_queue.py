@@ -26,10 +26,6 @@ class TTSQueueManager:
         }
         self.tts_queue.append(item)
 
-        print(
-            f"[TTS ENQUEUE] q={len(self.tts_queue)} audio_q={len(self.audio_queue)} text='{text[:60]}...'"
-        )
-
         # Start processing if not already running
         if not self.is_generating:
             asyncio.create_task(self._process_tts_queue())
@@ -44,16 +40,13 @@ class TTSQueueManager:
             item = self.tts_queue.popleft()
 
             try:
-                # Generate TTS audio with timeout to avoid stuck jobs
+                # Generate TTS audio
                 loop = asyncio.get_event_loop()
-                audio = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        self.pipeline.process_text_to_audio,
-                        item["text"],
-                        item["speaker_id"],
-                    ),
-                    timeout=30,
+                audio = await loop.run_in_executor(
+                    None,
+                    self.pipeline.process_text_to_audio,
+                    item["text"],
+                    item["speaker_id"],
                 )
 
                 # Encode audio to base64
@@ -74,8 +67,6 @@ class TTSQueueManager:
                     f"[TTS QUEUE] '{item['text'][:60]}...' -> {len(audio)} samples ({duration:.2f}s), b64: {len(audio_b64)} chars"
                 )
 
-            except asyncio.TimeoutError:
-                print(f"TTS timeout for '{item['text'][:60]}...'")
             except Exception as e:
                 print(f"TTS error for '{item['text']}': {e}")
 

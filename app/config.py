@@ -27,8 +27,8 @@ class TTSConfig(BaseSettings):
 class VADConfig(BaseSettings):
     """VAD (Voice Activity Detection) configuration"""
 
-    threshold: float = 0.5
-    min_speech_duration_ms: int = 150
+    threshold: float = 0.6
+    min_speech_duration_ms: int = 200
     min_silence_duration_ms: int = 200
 
 
@@ -71,12 +71,8 @@ class Settings(BaseSettings):
 
     # Server configuration
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8080
     debug: bool = False  # Enable/disable debug logging
-
-    class Config:
-        env_file = ".env"
-        env_nested_delimiter = "__"
 
 
 settings = Settings()

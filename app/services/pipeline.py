@@ -16,26 +16,27 @@ class Pipeline:
         self.asr = ASRModel(
             model_path=settings.asr.model_name, device=settings.asr.device
         )
-        
-        # Helper for setting decoding strategy safely
         try:
             # Check if using a model that supports validation configuration
             # Some older NeMo models or specific classes might differ
-            
+
             # Default to greedy batch which is faster
-            decoding_cfg = OmegaConf.create({
-                "strategy": "greedy_batch", 
-                "preserve_alignments": False, 
-                "compute_timestamps": False
-            })
-            
-            if hasattr(self.asr, 'asr_model') and hasattr(self.asr.asr_model, 'change_decoding_strategy'):
-                 self.asr.asr_model.change_decoding_strategy(decoding_cfg)
-                 print("ASR decoding strategy set to: greedy_batch")
+            decoding_cfg = OmegaConf.create(
+                {
+                    "strategy": "greedy_batch",
+                    "preserve_alignments": False,
+                    "compute_timestamps": False,
+                }
+            )
+
+            if hasattr(self.asr, "asr_model") and hasattr(
+                self.asr.asr_model, "change_decoding_strategy"
+            ):
+                self.asr.asr_model.change_decoding_strategy(decoding_cfg)
+                print("ASR decoding strategy set to: greedy_batch")
         except Exception as e:
             print(f"Warning: Could not set ASR decoding strategy: {e}")
-            print("Continuing with default strategy.")
-        
+
         # Warmup ASR BEFORE loading TTS to avoid CUDA conflicts
         self.asr.warmup()
 
@@ -45,7 +46,9 @@ class Pipeline:
             device=settings.tts.device,
         )
 
-    def process_audio_to_text(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
+    def process_audio_to_text(
+        self, audio: np.ndarray, sample_rate: int = settings.streaming.sample_rate
+    ) -> str:
         # VAD check is done in streaming.py, so skip here for performance
         transcription = self.asr.transcribe_audio(audio, sample_rate)
         return transcription

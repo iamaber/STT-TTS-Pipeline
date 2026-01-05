@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 from nemo.collections.asr.models import EncDecCTCModelBPE
+from app.config import settings
 
 
 # CUDA Performance Optimizations
@@ -13,7 +14,6 @@ torch.set_float32_matmul_precision("high")  # Faster matmul
 
 
 class ASRModel:
-
     def __init__(self, model_path: str, device: str = "cuda", verbose: bool = True):
         self.verbose = verbose
         self._warmed_up = False
@@ -42,10 +42,12 @@ class ASRModel:
         self.model = self.model.to(self.device)
         self.model.freeze()
         self.model.eval()
-        
+
         # Set decoding strategy to greedy_batch for better performance
         try:
-            self.model.change_decoding_strategy(decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"})
+            self.model.change_decoding_strategy(
+                decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"}
+            )
             if verbose:
                 print("Using greedy_batch decoding strategy")
         except Exception as e:
@@ -71,7 +73,9 @@ class ASRModel:
                 print(f"ASR warmup failed: {e}")
             self._warmed_up = True
 
-    def transcribe_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
+    def transcribe_audio(
+        self, audio: np.ndarray, sample_rate: int = settings.streaming.sample_rate
+    ) -> str:
         try:
             # Prepare audio
             if audio.ndim > 1:

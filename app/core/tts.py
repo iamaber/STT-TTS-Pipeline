@@ -177,12 +177,9 @@ class TTS:
                 print("TTS: No valid words, skipping")
             return np.array([], dtype=np.float32)
 
-        # Note: max_text_length is already handled in _split_text() method
-        # No need to truncate here as it will break sentences mid-word
-
         # Validate speaker ID (use safer range)
         if speaker >= self.n_speakers or speaker < 0:
-            speaker = min(50, self.n_speakers - 1)  # Use speaker 50 or max available
+            speaker = min(0, self.n_speakers - 1)  # Use speaker 0 or max available
             if self.verbose:
                 print(f"TTS: Invalid speaker, using {speaker}")
 
@@ -197,7 +194,7 @@ class TTS:
 
     @torch.no_grad()
     def synthesize_batch(self, texts, speaker: Optional[int] = None):
-        return [self.generate(text, speaker=speaker or 92) for text in texts]
+        return [self.generate(text, speaker=speaker) for text in texts]
 
 
 class TTSModel:

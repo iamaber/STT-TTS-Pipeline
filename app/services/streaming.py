@@ -23,13 +23,6 @@ def get_vad() -> SileroVAD:
 
 
 class StreamingSession:
-    """
-    Manages a single streaming session with semantic sentence detection.
-
-    Uses VAD to detect natural pauses and semantic analysis (punctuation)
-    to determine sentence boundaries.
-    """
-
     def __init__(self):
         self.audio_buffer = np.array([], dtype=np.float32)
         self.transcripts = []
@@ -142,9 +135,9 @@ def process_streaming_audio(
     # Add audio and check if we should transcribe
     # check_type is "transcribe", "speech_start", or None
     should_check, chunk, reason = session.add_audio(audio_data, sample_rate)
-    
+
     # Check if speech just started (interruption)
-    is_speech_start = (reason == "speech_start")
+    is_speech_start = reason == "speech_start"
 
     # If nothing to check or no audio chunk, return early
     if not should_check or chunk is None:
@@ -184,7 +177,7 @@ def process_streaming_audio(
     # Generate TTS
     output_audio = None
     output_sr = None
-    
+
     try:
         if pipeline:
             output_audio = pipeline.process_text_to_audio(text, speaker_id)

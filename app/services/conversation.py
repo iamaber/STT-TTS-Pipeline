@@ -43,22 +43,10 @@ class ConversationManager:
         return None
 
     def add_to_history(self, role: str, content: str):
-        self.conversation_history.append(
-            {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
-        )
-
-        # Keep only last 20 messages to manage context window
-        if len(self.conversation_history) > 20:
-            self.conversation_history = self.conversation_history[-20:]
+        pass
 
     def get_history(self) -> list:
-        """Get conversation history"""
-        return self.conversation_history
+        pass
 
     def clear_history(self):
-        """Clear conversation history"""
-        self.conversation_history = []
-
-    def get_queue_size(self) -> int:
-        """Get current queue size"""
-        return len(self.user_queue)
+        return []
