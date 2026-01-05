@@ -10,21 +10,19 @@ dependencies = [
     "websockets>=12.0",
     "python-multipart>=0.0.9",
     'nemo_toolkit[asr,tts]>=2.0.0',
-    'onnx==1.15.0',
     "torch>=2.1.0",
     "torchaudio>=2.1.0",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
-    "soundfile>=0.12.1",
     "librosa>=0.10.1",
     "silero-vad>=5.1",
-    "vllm>=0.6.0",
     "pydantic>=2.5.0",
     'pydantic-settings>=2.1.0',
     'omegaconf>=2.3.0',
-    'aiofiles>=23.2.1',
-    "gradio>=6.2.0",
-    "google-generativeai>=0.8.0",
     "pydantic-ai>=0.0.14",
-    "httpx>=0.28.1",
+    "noisereduce>=3.0.3",
+    "onnxruntime>=1.23.2",
 ]
+
+[tool.setuptools]
+packages = ["app"]
