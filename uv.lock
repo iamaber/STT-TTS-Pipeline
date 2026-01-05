@@ -3603,23 +3603,6 @@ wheels = [
 ]
 
 [[package]]
-name = "noisereduce"
-version = "3.0.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "joblib" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/11/08/539e3cff148b7f9bde5b4b060451a7445d708fa3fe5d8a2bc0c552976e52/noisereduce-3.0.3.tar.gz", hash = "sha256:ff64a28fb92e3c81f153cf29550e5c2db56b2523afa8f56f5e03c177cc5e918f", size = 20968, upload-time = "2024-10-06T13:43:45.431Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/c5/fc00b3e8f86437039fb300ba41d5d683fdf0878d8782e827c2bad074eb59/noisereduce-3.0.3-py3-none-any.whl", hash = "sha256:95cb64cfe29b5fa0311ac764755d2f503ae71571040693577796412be1a54b9d", size = 22142, upload-time = "2024-10-06T13:43:43.886Z" },
-]
-
-[[package]]
 name = "num2words"
 version = "0.5.14"
 source = { registry = "https://pypi.org/simple" }
@@ -6378,7 +6361,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "librosa" },
     { name = "nemo-toolkit", extra = ["asr", "tts"] },
-    { name = "noisereduce" },
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "onnxruntime" },
@@ -6400,7 +6382,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "librosa", specifier = ">=0.10.1" },
     { name = "nemo-toolkit", extras = ["asr", "tts"], specifier = ">=2.0.0" },
-    { name = "noisereduce", specifier = ">=3.0.3" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "omegaconf", specifier = ">=2.3.0" },
     { name = "onnxruntime", specifier = ">=1.23.2" },

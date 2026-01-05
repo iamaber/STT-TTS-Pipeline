@@ -28,8 +28,8 @@ class VADConfig(BaseSettings):
     """VAD (Voice Activity Detection) configuration"""
 
     threshold: float = 0.6
-    min_speech_duration_ms: int = 200
-    min_silence_duration_ms: int = 200
+    min_speech_duration_ms: int = 250
+    min_silence_duration_ms: int = 250
 
 
 class StreamingConfig(BaseSettings):

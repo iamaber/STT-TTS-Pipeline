@@ -9,7 +9,6 @@ class LLMService:
     def __init__(self):
         self.api_url = settings.llm.api_url
         self.client = httpx.AsyncClient()
-        print(f"LLM Service initialized: {self.api_url}")
 
     async def clear_memory(self) -> bool:
         """No-op: API handles memory management"""
@@ -18,29 +17,30 @@ class LLMService:
     def _should_skip_line(self, text: str) -> bool:
         """Check if line should be skipped (code blocks, markdown, etc)"""
         stripped = text.strip()
-        # Skip code blocks
-        if "```" in stripped or "```python" in stripped:
+
+        # Skip empty or very short
+        if len(stripped) < 2:
             return True
-        # Skip system messages/prompts
+
+        # Skip only if line STARTS with code markers (not contains)
+        if stripped.startswith("```"):
+            return True
+
+        # Skip only if line STARTS with system/role markers
         if any(
-            x in stripped.lower()
+            stripped.lower().startswith(x)
             for x in [
                 "system:",
                 "assistant:",
                 "user:",
-                "def ",
-                "python",
-                "error:",
-                "**error**",
             ]
         ):
             return True
-        # Skip markdown headers
+
+        # Skip markdown headers (starts with #)
         if stripped.startswith("#"):
             return True
-        # Skip empty or very short
-        if len(stripped) < 2:
-            return True
+
         return False
 
     async def generate(self, user_message: str) -> AsyncIterator[str]:
@@ -78,8 +78,8 @@ class LLMService:
                     if not marker or marker == "[DONE]":
                         continue
 
-                    # Track code blocks
-                    if "```" in chunk:
+                    # Track code blocks (only toggle on standalone ``` markers)
+                    if marker == "```" or marker.startswith("```"):
                         in_code_block = not in_code_block
                         continue
 
@@ -87,11 +87,7 @@ class LLMService:
                     if in_code_block:
                         continue
 
-                    # Skip undesirable content
-                    if self._should_skip_line(chunk):
-                        continue
-
-                    # Preserve spacing from stream; add a space only if missing
+                    # Add chunk to buffer (preserve spacing)
                     sentence_buffer += chunk
                     if not chunk.endswith(" "):
                         sentence_buffer += " "

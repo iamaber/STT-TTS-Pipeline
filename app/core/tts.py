@@ -63,7 +63,7 @@ class TTS:
         self.hifigan.eval()
 
         self.n_speakers = self.fastpitch.cfg.n_speakers
-        self.sample_rate = 44100
+        self.sample_rate = settings.tts.sample_rate
 
         if verbose:
             print(f"TTS ready: {self.n_speakers} speakers available")

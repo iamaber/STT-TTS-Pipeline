@@ -3,10 +3,7 @@ import numpy as np
 import os
 from nemo.collections.asr.models import EncDecCTCModelBPE
 from app.config import settings
-import io
 from scipy.io import wavfile
-import noisereduce as nr
-
 
 # CUDA Performance Optimizations
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -24,8 +21,6 @@ class ASRModel:
         # Use GPU if available
         if torch.cuda.is_available() and device == settings.asr.device:
             self.device = torch.device("cuda:0")
-        else:
-            self.device = torch.device("cpu")
 
         if verbose:
             print(f"Loading ASR model on {self.device}...")
@@ -76,73 +71,46 @@ class ASRModel:
     def transcribe_audio(
         self, audio: np.ndarray, sample_rate: int = settings.streaming.sample_rate
     ) -> str:
-        try:
-            # Optional: Apply noise reduction before VAD/ASR
-            # Only if audio is long enough
-            if len(audio) > 1600:
-                # Estimate noise from the first 0.2s
-                noise_clip = audio[: min(3200, len(audio))]
-                audio = nr.reduce_noise(
-                    y=audio, sr=sample_rate, y_noise=noise_clip, prop_decrease=1.0
-                )
-            # Prepare audio
-            if audio.ndim > 1:
-                audio = audio.mean(axis=1)
-            if audio.dtype != np.float32:
-                audio = audio.astype(np.float32)
-            # Only resample if sample_rate is not already 16000 (allow small tolerance)
-            if abs(sample_rate - 16000) > 10:
-                import librosa
+        # Prepare audio
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+        # Only resample if sample_rate is not already 16000 (allow small tolerance)
+        if abs(sample_rate - 16000) > 10:
+            import librosa
 
-                audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
-                sample_rate = 16000
-            if len(audio) < 1600:
-                return ""
-
-            # Write to in-memory buffer as WAV
-            buf = io.BytesIO()
-            wavfile.write(buf, 16000, (audio * 32767).astype(np.int16))
-            buf.seek(0)
-
-            try:
-                # Try to use in-memory buffer if supported
-                with torch.inference_mode():
-                    transcriptions = self.model.transcribe([buf], batch_size=1)
-                if transcriptions and len(transcriptions) > 0:
-                    result = transcriptions[0]
-                    if hasattr(result, "text"):
-                        return result.text.strip()
-                    return str(result).strip()
-                return ""
-            except Exception as e:
-                # Fallback: use temp file if buffer is not supported
-                if self.verbose:
-                    print(f"In-memory buffer failed, falling back to temp file: {e}")
-                import tempfile
-                from pathlib import Path
-
-                shm_dir = Path("/dev/shm")
-                tmp_dir = shm_dir if shm_dir.exists() else None
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav", delete=False, dir=tmp_dir
-                ) as tmp:
-                    tmp_path = tmp.name
-                    wavfile.write(tmp_path, 16000, (audio * 32767).astype(np.int16))
-                try:
-                    with torch.inference_mode():
-                        transcriptions = self.model.transcribe([tmp_path], batch_size=1)
-                    if transcriptions and len(transcriptions) > 0:
-                        result = transcriptions[0]
-                        if hasattr(result, "text"):
-                            return result.text.strip()
-                        return str(result).strip()
-                    return ""
-                finally:
-                    try:
-                        Path(tmp_path).unlink(missing_ok=True)
-                    except Exception:
-                        pass
-        except Exception as e:
-            if self.verbose:
-                print(f"Transcription error: {e}")
+            audio = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+            sample_rate = 16000
+        if len(audio) < 1600:
             return ""
+
+        # Use temp file in RAM disk (/dev/shm) for fastest I/O
+        # NeMo doesn't support BytesIO, so this is the optimal approach
+        import tempfile
+        from pathlib import Path
+
+        shm_dir = Path("/dev/shm")
+        tmp_dir = shm_dir if shm_dir.exists() else None
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".wav", delete=False, dir=tmp_dir
+        ) as tmp:
+            tmp_path = tmp.name
+            wavfile.write(tmp_path, 16000, (audio * 32767).astype(np.int16))
+
+        try:
+            with torch.inference_mode():
+                transcriptions = self.model.transcribe([tmp_path], batch_size=1)
+            if transcriptions and len(transcriptions) > 0:
+                result = transcriptions[0]
+                if hasattr(result, "text"):
+                    return result.text.strip()
+                return str(result).strip()
+            return ""
+        finally:
+            # Clean up temp file
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
