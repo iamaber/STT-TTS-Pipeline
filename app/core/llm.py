@@ -18,10 +18,6 @@ class LLMService:
         """Check if line should be skipped (code blocks, markdown, etc)"""
         stripped = text.strip()
 
-        # Skip empty or very short
-        if len(stripped) < 2:
-            return True
-
         # Skip only if line STARTS with code markers (not contains)
         if stripped.startswith("```"):
             return True

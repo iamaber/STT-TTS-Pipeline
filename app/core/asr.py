@@ -21,9 +21,8 @@ class ASRModel:
         # Use GPU if available
         if torch.cuda.is_available() and device == settings.asr.device:
             self.device = torch.device("cuda:0")
-
-        if verbose:
-            print(f"Loading ASR model on {self.device}...")
+        else:
+            self.device = torch.device("cpu")
 
         # Load CTC model (from pretrained or local file)
         if model_path.endswith(".nemo"):
@@ -44,10 +43,8 @@ class ASRModel:
         # Set decoding strategy to greedy_batch for better performance
         try:
             self.model.change_decoding_strategy(
-                decoder_type="ctc", decoding_cfg={"strategy": "greedy_batch"}
+                decoding_cfg={"strategy": "greedy_batch"}
             )
-            if verbose:
-                print("Using greedy_batch decoding strategy")
         except Exception as e:
             if verbose:
                 print(f"Could not set greedy_batch strategy: {e}")
@@ -55,8 +52,6 @@ class ASRModel:
     def warmup(self):
         if self._warmed_up:
             return
-        if self.verbose:
-            print("Warming up ASR model...")
         try:
             dummy_audio = np.zeros(settings.asr.sample_rate, dtype=np.float32)
             self.transcribe_audio(dummy_audio, settings.asr.sample_rate)

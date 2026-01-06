@@ -41,7 +41,7 @@ class StreamingConfig(BaseSettings):
 
 
 class LLMConfig(BaseSettings):
-    """LLM (Large Language Model) configuration - Custom API"""
+    """LLM configuration - Custom API"""
 
     # Custom LLM API settings
     api_url: str = "http://192.168.10.2:8000/api/stream"
