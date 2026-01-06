@@ -1,3 +1,4 @@
+import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +23,24 @@ from app.config import (
 )
 from app.utils.audio import decode_audio, encode_audio
 from app.utils.text import clean_text_for_display
+
+
+# We need to intercept and force weights_only=False
+
+# Save the original torch.load in the module's __dict__
+_original_load = torch.serialization.load
+
+
+def _patched_load(*args, **kwargs):
+    """Intercept torch.load calls and force weights_only=False for NeMo compatibility"""
+    # Always set weights_only to False for NeMo models
+    kwargs["weights_only"] = False
+    return _original_load(*args, **kwargs)
+
+
+# Replace torch.load with our patched version
+torch.load = _patched_load
+torch.serialization.load = _patched_load
 
 
 # Initialize FastAPI app
