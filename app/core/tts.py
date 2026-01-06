@@ -1,8 +1,10 @@
 import re
-import torch
-import numpy as np
 from typing import Optional
+
+import numpy as np
+import torch
 from nemo.collections.tts.models import FastPitchModel, HifiGanModel
+
 from app.config import settings
 
 # CUDA Performance Optimizations

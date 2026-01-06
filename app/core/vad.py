@@ -1,24 +1,25 @@
+from typing import List, Tuple
+import numpy as np
 import torch
 from silero_vad import load_silero_vad
-import numpy as np
-from typing import List, Tuple
+
 from app.config import settings
 
 
 class SileroVAD:
     def __init__(
         self,
-        threshold: float = settings.vad.threshold,
-        min_speech_duration_ms: int = settings.vad.min_speech_duration_ms,
-        min_silence_duration_ms: int = settings.vad.min_silence_duration_ms,
-        sample_rate: int = settings.streaming.sample_rate,
+        threshold: float,
+        min_speech_duration_ms: int,
+        min_silence_duration_ms: int,
+        sample_rate: int,
     ):
         self.model = load_silero_vad()
-        self.threshold = threshold
-        self.min_speech_duration_ms = min_speech_duration_ms
-        self.min_silence_duration_ms = min_silence_duration_ms
-        self.sample_rate = sample_rate
-        self.window_size_samples = 512 if sample_rate == 16000 else 256
+        self.threshold = settings.vad.threshold
+        self.min_speech_duration_ms = settings.vad.min_speech_duration_ms
+        self.min_silence_duration_ms = settings.vad.min_silence_duration_ms
+        self.sample_rate = settings.streaming.sample_rate
+        self.window_size_samples = 512 if self.sample_rate == 16000 else 256
 
     def is_speech(self, audio: np.ndarray, threshold: float = None) -> bool:
         if threshold is None:
