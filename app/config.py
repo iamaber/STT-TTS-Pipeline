@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 class ASRConfig(BaseSettings):
     """ASR (Automatic Speech Recognition) configuration"""
 
-    model_name: str = "models/asr/parakeet-ctc-1.1b.nemo"
+    model_name: str = "nvidia/parakeet-tdt-0.6b-v2"
     sample_rate: int = 16000
     chunk_size_ms: int = 100
     streaming: bool = True
