@@ -10,7 +10,10 @@ import numpy as np
 class Pipeline:
     def __init__(self):
         self.vad = SileroVAD(
-            threshold=settings.vad.threshold, sample_rate=settings.asr.sample_rate
+            threshold=settings.vad.threshold,
+            sample_rate=settings.asr.sample_rate,
+            min_silence_duration_ms=settings.vad.min_silence_duration_ms,
+            min_speech_duration_ms=settings.vad.min_speech_duration_ms,
         )
 
         self.asr = ASRModel(
