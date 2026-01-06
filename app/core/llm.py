@@ -15,12 +15,7 @@ class LLMService:
         return True
 
     def _should_skip_line(self, text: str) -> bool:
-        """Check if line should be skipped (code blocks, markdown, etc)"""
         stripped = text.strip()
-
-        # Skip only if line STARTS with code markers (not contains)
-        if stripped.startswith("```"):
-            return True
 
         # Skip only if line STARTS with system/role markers
         if any(
@@ -33,17 +28,9 @@ class LLMService:
         ):
             return True
 
-        # Skip markdown headers (starts with #)
-        if stripped.startswith("#"):
-            return True
-
         return False
 
     async def generate(self, user_message: str) -> AsyncIterator[str]:
-        """
-        Generate response from LLM API.
-        API handles memory management and yields complete sentences.
-        """
         payload = {
             "prompt": user_message,
             "max_tokens": settings.llm.max_tokens,
@@ -54,7 +41,6 @@ class LLMService:
         }
 
         sentence_buffer = ""
-        in_code_block = False
 
         try:
             async with self.client.stream(
@@ -72,15 +58,6 @@ class LLMService:
                     marker = chunk.strip()
 
                     if not marker or marker == "[DONE]":
-                        continue
-
-                    # Track code blocks (only toggle on standalone ``` markers)
-                    if marker == "```" or marker.startswith("```"):
-                        in_code_block = not in_code_block
-                        continue
-
-                    # Skip if in code block
-                    if in_code_block:
                         continue
 
                     # Add chunk to buffer (preserve spacing)
