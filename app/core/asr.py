@@ -71,7 +71,7 @@ class ASRModel:
 
             try:
                 with torch.no_grad():
-                    if self.device.type == "cuda":
+                    if self.device.type == settings.asr.device:
                         torch.cuda.empty_cache()
 
                         transcriptions = self.model.transcribe([tmp_path], batch_size=1)
