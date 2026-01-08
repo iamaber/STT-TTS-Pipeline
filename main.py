@@ -11,9 +11,7 @@ from app.services.conversation import ConversationManager
 from app.services.tts_queue import TTSQueueManager
 from app.config import (
     settings,
-    STTTTSRequest,
     StreamingRequest,
-    TTSResponse,
     StreamingResponse,
     ResetResponse,
     ConversationRequest,
@@ -24,24 +22,20 @@ from app.config import (
 from app.utils.audio import decode_audio, encode_audio
 from app.utils.text import clean_text_for_display
 
-
-# We need to intercept and force weights_only=False
-
-# Save the original torch.load in the module's __dict__
-_original_load = torch.serialization.load
+# Patch torch.load BEFORE importing any NeMo/torch consumers
+_original_torch_load = torch.load
+_original_torch_serialization_load = torch.serialization.load
 
 
 def _patched_load(*args, **kwargs):
-    """Intercept torch.load calls and force weights_only=False for NeMo compatibility"""
-    # Always set weights_only to False for NeMo models
+    """Force weights_only=False for NeMo checkpoints while preserving original torch load behavior."""
+    # Override any caller-provided value; NeMo restore paths pass weights_only=True
     kwargs["weights_only"] = False
-    return _original_load(*args, **kwargs)
+    return _original_torch_load(*args, **kwargs)
 
 
-# Replace torch.load with our patched version
 torch.load = _patched_load
 torch.serialization.load = _patched_load
-
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -109,35 +103,6 @@ async def get_config():
         },
         "llm_enabled": llm_service is not None,
     }
-
-
-@app.post("/api/stt-tts", response_model=TTSResponse)
-async def stt_tts(request: STTTTSRequest) -> TTSResponse:
-    """
-    Full STT-TTS pipeline: transcribe audio and generate TTS response.
-
-    Args:
-        request: Audio data and configuration
-
-    Returns:
-        Transcription and synthesized audio
-    """
-    # Decode audio
-    audio_data = decode_audio(request.audio)
-
-    # Process through pipeline
-    transcription, tts_audio = pipeline.process_full_pipeline(
-        audio_data,
-        request.sample_rate,
-        request.speaker or settings.tts.default_speaker_id,
-    )
-
-    # Encode TTS audio
-    tts_b64 = encode_audio(tts_audio)
-
-    return TTSResponse(
-        transcription=transcription, audio=tts_b64, sample_rate=settings.tts.sample_rate
-    )
 
 
 @app.post("/api/stream/process", response_model=StreamingResponse)

@@ -4,6 +4,30 @@ from datetime import datetime
 from app.config import settings
 from app.core.vad import SileroVAD
 
+# Filler tokens considered as "thinking" sounds
+FILLER_WORDS = {
+    "hmm",
+    "mm",
+    "mhm",
+    "hm",
+    "uh",
+    "um",
+    "erm",
+    "ah",
+    "eh",
+    "uhh",
+    "umm",
+    "mmm",
+}
+
+
+def is_filler_only(text: str) -> bool:
+    """Return True if all tokens in text are filler tokens."""
+    if not text:
+        return False
+    words = [w for w in text.lower().strip().split() if w]
+    return bool(words) and all(w in FILLER_WORDS for w in words)
+
 
 # VAD singleton
 _vad = None
@@ -155,6 +179,14 @@ def process_streaming_audio(
 
     # Check if sentence is complete (has ending punctuation)
     text = transcription.strip()
+
+    # If only filler words, keep buffering and keep ASR active
+    # Do not finalize or clear the buffer; avoid adding transcript yet
+    if is_filler_only(text) and reason != "max_buffer_reached":
+        session.consecutive_silence = 0
+        session.is_speaking = True
+        return session.get_transcripts() or "Listening...", None, None, is_speech_start
+
     has_sentence_ending = text.endswith((".", "!", "?"))
 
     # Check if we have any valid text (even single words)
