@@ -22,6 +22,7 @@ from app.config import (
     CleanupResponse,
 )
 from app.utils.audio import decode_audio, encode_audio
+from app.utils.text import clean_text_for_display
 
 
 # We need to intercept and force weights_only=False
@@ -237,6 +238,8 @@ async def process_llm_streaming(
             cleaned = sentence.strip()
             if cleaned.lower().startswith("assistant:"):
                 cleaned = cleaned[10:].strip()
+
+            cleaned = clean_text_for_display(cleaned)
 
             if not cleaned:
                 continue

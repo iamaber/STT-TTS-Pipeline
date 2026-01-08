@@ -24,28 +24,30 @@ def get_vad() -> SileroVAD:
 
 class StreamingSession:
     def __init__(self):
-        # keep chunks list for efficient appends, build numpy array only when needed
-        self.audio_chunks: list[np.ndarray] = []
+        self.audio_buffer = np.array([], dtype=np.float32)
         self.transcripts = []
         self.is_speaking = False
         self.consecutive_silence = 0
         self.silence_trigger_count = settings.streaming.silence_trigger_count
 
     def reset(self):
-        self.audio_chunks.clear()
-        self.transcripts.clear()
+        """Reset session state"""
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.transcripts = []
         self.is_speaking = False
         self.consecutive_silence = 0
 
-    def _buffer_length(self) -> int:
-        return sum(len(c) for c in self.audio_chunks)
+    def should_check_transcription(self) -> bool:
+        """
+        Check if we should transcribe the buffer.
+        Triggers on natural pause (silence) detection.
+        """
+        return self.consecutive_silence >= self.silence_trigger_count
 
-    def _get_buffer_array(self) -> np.ndarray:
-        return (
-            np.concatenate(self.audio_chunks)
-            if self.audio_chunks
-            else np.array([], dtype=np.float32)
-        )
+    def should_force_process(self) -> bool:
+        """Force processing if buffer exceeds maximum duration (safety fallback)"""
+        buffer_duration = len(self.audio_buffer) / settings.streaming.sample_rate
+        return buffer_duration >= settings.streaming.max_buffer_seconds
 
     def add_audio(
         self, audio_data: np.ndarray, sample_rate: int
@@ -75,21 +77,11 @@ class StreamingSession:
         if audio_data.dtype != np.float32:
             audio_data = audio_data.astype(np.float32)
 
-        # Append chunk (efficient)
-        self.audio_chunks.append(audio_data)
+        # Add to buffer
+        self.audio_buffer = np.concatenate([self.audio_buffer, audio_data])
 
-        # Check speech on the incoming chunk
+        # Check for speech
         is_speech = vad.is_speech(audio_data)
-
-        # Detect speech start transition
-        if is_speech and not self.is_speaking:
-            self.is_speaking = True
-            self.consecutive_silence = 0
-            return (
-                True,
-                self._get_buffer_array(),
-                "speech_start",
-            )  # inform caller immediately
 
         if is_speech:
             self.is_speaking = True
@@ -98,21 +90,26 @@ class StreamingSession:
             if self.is_speaking:
                 self.consecutive_silence += 1
 
-        # Pause-detected (end of sentence)
-        if self.consecutive_silence >= self.silence_trigger_count:
-            return True, self._get_buffer_array(), "pause_detected"
+        # Check if we should transcribe to detect sentence completion
+        if self.should_check_transcription():
+            return True, self.audio_buffer.copy(), "pause_detected"
 
-        # Force process if buffer exceeds max
-        buffer_duration = self._buffer_length() / settings.streaming.sample_rate
-        if buffer_duration >= settings.streaming.max_buffer_seconds:
-            chunk = self._get_buffer_array()
-            self.reset()
+        # Safety: Force process if buffer too long
+        if self.should_force_process():
+            chunk = self.audio_buffer.copy()
+            self.audio_buffer = np.array([], dtype=np.float32)
+            self.is_speaking = False
+            self.consecutive_silence = 0
             return True, chunk, "max_buffer_reached"
 
+        # Continue buffering
         return False, None, "buffering"
 
     def clear_buffer(self):
-        self.reset()
+        """Clear the audio buffer after successful processing"""
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.is_speaking = False
+        self.consecutive_silence = 0
 
     def add_transcript(self, text: str, timestamp: str = None):
         """Add transcription with timestamp"""
