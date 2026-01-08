@@ -71,6 +71,25 @@ class ASRModel:
         except Exception as e:
             print(f"Could not set greedy strategy: {e}")
 
+        self.warmup()
+
+    def warmup(self):
+        if self._warmed_up:
+            return
+
+        try:
+            dummy_audio = np.zeros(settings.asr.sample_rate, dtype=np.float32)
+            _ = self.transcribe_audio(dummy_audio, settings.asr.sample_rate)
+            self._warmed_up = True
+
+            if self.verbose:
+                print("ASR warmup complete!")
+
+        except Exception as e:
+            if self.verbose:
+                print(f"ASR warmup failed (non-critical): {e}")
+            self._warmed_up = True
+
     def transcribe_audio(
         self, audio: np.ndarray, sample_rate: int = settings.streaming.sample_rate
     ) -> str:
