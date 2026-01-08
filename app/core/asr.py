@@ -10,7 +10,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size
 
 
 class ASRModel:
-    def __init__(self, model_path: str, device: str = "cuda", verbose: bool = True):
+    def __init__(self, model_path: str, device: str, verbose: bool = True):
         self.verbose = verbose
         self._warmed_up = False
 
@@ -20,7 +20,40 @@ class ASRModel:
         else:
             self.device = torch.device("cpu")
 
-        self.model = NeMoASRModel.from_pretrained(model_name=model_path)
+        # Resolve model path
+        resolved_local_path = None
+
+        try:
+            # 1) Direct file path provided
+            if isinstance(model_path, str) and os.path.isfile(model_path):
+                resolved_local_path = model_path
+
+            else:
+                # 2) Directory provided -> pick first .nemo file
+                if isinstance(model_path, str) and os.path.isdir(model_path):
+                    for fname in os.listdir(model_path):
+                        if fname.endswith(".nemo"):
+                            resolved_local_path = os.path.join(model_path, fname)
+                            break
+
+                # 3) Name like "nvidia/parakeet-tdt-0.6b-v2" -> try models/asr/<name>.nemo
+                if resolved_local_path is None and isinstance(model_path, str):
+                    base_name = os.path.basename(model_path)
+                    guess_path = os.path.join("models", "asr", f"{base_name}.nemo")
+                    if os.path.isfile(guess_path):
+                        resolved_local_path = guess_path
+        except Exception:
+            # Fall through to remote if any resolution error occurs
+            resolved_local_path = None
+
+        if resolved_local_path is not None:
+            if self.verbose:
+                print(f"Loading ASR model from LOCAL file: {resolved_local_path}")
+            self.model = NeMoASRModel.restore_from(restore_path=resolved_local_path)
+        else:
+            if self.verbose:
+                print(f"Loading ASR model from REMOTE hub: {model_path}")
+            self.model = NeMoASRModel.from_pretrained(model_name=model_path)
 
         # Configure preprocessor
         self.model.preprocessor.featurizer.dither = 0.0
@@ -32,7 +65,9 @@ class ASRModel:
 
         # Set decoding strategy to greedy for better performance
         try:
-            self.model.change_decoding_strategy(decoding_cfg={"strategy": "greedy"})
+            self.model.change_decoding_strategy(
+                decoding_cfg={"strategy": "greedy_batch"}
+            )
         except Exception as e:
             print(f"Could not set greedy strategy: {e}")
 
