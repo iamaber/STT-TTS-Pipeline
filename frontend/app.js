@@ -18,6 +18,7 @@ let audioContext = null;
 let audioWorkletNode = null;
 let sessionId = null;   
 let isRecording = false;
+let isASRMuted = false;  // Track ASR mute state
 let currentAudioQueue = [];
 let isPlayingAudio = false;
 let isPolling = false;
@@ -222,7 +223,8 @@ async function startRecording() {
         
         // Handle audio chunks
         audioWorkletNode.port.onmessage = async (event) => {
-            if (isRecording) {
+            // Only send audio if recording is active AND not muted
+            if (isRecording && !isASRMuted) {
                 await sendAudioChunk(event.data);
             }
         };
@@ -230,10 +232,14 @@ async function startRecording() {
         // Generate session ID
         sessionId = `session_${Date.now()}`;
         isRecording = true;
+        isASRMuted = false;  // Reset mute state
         
         // Update UI
         elements.startBtn.disabled = true;
         elements.stopBtn.disabled = false;
+        elements.stopBtn.innerHTML = '<span class="icon">🔇</span> Mute';
+        elements.stopBtn.classList.remove('btn-warning');
+        elements.stopBtn.classList.add('btn-danger');
         conversationUI.updateStatus('recording', 'Recording', null);
         conversationUI.updateASR('Listening...', true);
         
@@ -244,34 +250,32 @@ async function startRecording() {
     }
 }
 
-function stopRecording() {
-    isRecording = false;
+function toggleASRMute() {
+    if (!isRecording) return;  // Only works when recording is active
     
-    // Stop LLM generation and audio playback
-    isPolling = false;
-    currentAudioQueue = [];
-    isPlayingAudio = false;
-    stopAllAudioPlayback();
+    isASRMuted = !isASRMuted;
     
-    // Cleanup audio resources
-    if (audioWorkletNode) {
-        audioWorkletNode.disconnect();
-        audioWorkletNode = null;
+    if (isASRMuted) {
+        // Mute ASR - stop sending audio to backend (LLM/TTS continue normally)
+        
+        // Update UI to show muted state
+        elements.stopBtn.innerHTML = '<span class="icon">🔊</span> Unmute';
+        elements.stopBtn.classList.remove('btn-danger');
+        elements.stopBtn.classList.add('btn-warning');
+        conversationUI.updateStatus('muted', 'ASR Muted (Mic Off)', null);
+        conversationUI.updateASR('🔇 Microphone muted - LLM & TTS still active', false);
+        console.log('ASR muted - microphone input disabled');
+    } else {
+        // Unmute ASR - resume sending audio to backend
+        
+        // Update UI to show active state
+        elements.stopBtn.innerHTML = '<span class="icon">🔇</span> Mute';
+        elements.stopBtn.classList.remove('btn-warning');
+        elements.stopBtn.classList.add('btn-danger');
+        conversationUI.updateStatus('recording', 'Recording', null);
+        conversationUI.updateASR('Listening...', true);
+        console.log('ASR unmuted - microphone input enabled');
     }
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-    
-    // Update UI
-    elements.startBtn.disabled = false;
-    elements.stopBtn.disabled = true;
-    conversationUI.updateStatus('ready', 'Ready', null);
-    conversationUI.updateASR('', false);
-    conversationUI.stopLLMStreaming();
-    conversationUI.completeTTSPlayback();
-    
-    console.log('Recording and generation stopped');
 }
 
 
@@ -296,7 +300,18 @@ function stopAudio() {
 async function resetSession() {
     // Stop recording if active
     if (isRecording) {
-        stopRecording();
+        isRecording = false;
+        isASRMuted = false;
+        
+        // Cleanup audio resources
+        if (audioWorkletNode) {
+            audioWorkletNode.disconnect();
+            audioWorkletNode = null;
+        }
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
+        }
     }
     stopAllAudioPlayback();
     
@@ -304,6 +319,13 @@ async function resetSession() {
     isPolling = false;
     currentAudioQueue = [];
     isPlayingAudio = false;
+    
+    // Reset UI
+    elements.startBtn.disabled = false;
+    elements.stopBtn.disabled = true;
+    elements.stopBtn.innerHTML = '<span class="icon">🔇</span> Mute';
+    elements.stopBtn.classList.remove('btn-warning');
+    elements.stopBtn.classList.add('btn-danger');
     
     // Reset session on server
     if (sessionId) {
@@ -665,7 +687,7 @@ async function playNextAudio() {
 // EVENT LISTENERS
 // ============================================
 elements.startBtn.addEventListener('click', startRecording);
-elements.stopBtn.addEventListener('click', stopRecording);
+elements.stopBtn.addEventListener('click', toggleASRMute);
 elements.resetBtn.addEventListener('click', resetSession);
 
 // ============================================
