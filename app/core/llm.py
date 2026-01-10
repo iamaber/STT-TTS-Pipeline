@@ -8,36 +8,69 @@ from app.config import settings
 class LLMService:
     def __init__(self):
         self.api_url = settings.llm.api_url
-        self.client = httpx.AsyncClient()
+        self.session_base_url = (
+            settings.llm.api_url.rsplit("/api/", 1)[0] + "/api/session"
+        )
+        self.client = httpx.AsyncClient(timeout=60.0)
+        self.active_sessions = set()  # Track initialized sessions
 
-    async def clear_memory(self) -> bool:
-        """No-op: API handles memory management"""
-        return True
+    async def initialize_session(self, user_id: str, session_id: str) -> bool:
+        """Initialize a new session with the LLM API"""
+        session_key = f"{user_id}:{session_id}"
 
-    def _should_skip_line(self, text: str) -> bool:
-        stripped = text.strip()
+        if session_key in self.active_sessions:
+            return True  # Already initialized
 
-        # Skip only if line STARTS with system/role markers
-        if any(
-            stripped.lower().startswith(x)
-            for x in [
-                "system:",
-                "assistant:",
-                "user:",
-            ]
-        ):
+        try:
+            session_url = f"{self.session_base_url}/{user_id}/{session_id}"
+            response = await self.client.post(session_url)
+            response.raise_for_status()
+            self.active_sessions.add(session_key)
+            print(f"Initialized session: {session_key}")
+            return True
+        except httpx.HTTPError as e:
+            print(f"Session initialization error (continuing anyway): {e}")
+            # Continue anyway - the chat endpoint might auto-create sessions
+            self.active_sessions.add(session_key)
             return True
 
-        return False
+    async def clear_session(self, user_id: str, session_id: str) -> bool:
+        """Clear a specific session"""
+        session_key = f"{user_id}:{session_id}"
 
-    async def generate(self, user_message: str) -> AsyncIterator[str]:
+        try:
+            session_url = f"{self.session_base_url}/{user_id}/{session_id}"
+            response = await self.client.delete(session_url)
+            response.raise_for_status()
+            self.active_sessions.discard(session_key)
+            print(f"Cleared session: {session_key}")
+            return True
+        except httpx.HTTPError as e:
+            print(f"Session clear error: {e}")
+            self.active_sessions.discard(session_key)
+            return False
+
+    async def clear_memory(self) -> bool:
+        """Clear all active sessions"""
+        self.active_sessions.clear()
+        return True
+
+    async def generate(
+        self,
+        user_message: str,
+        user_id: str = "default_user",
+        session_id: str = "default_session",
+    ) -> AsyncIterator[str]:
+        # Initialize session if not already done
+        await self.initialize_session(user_id, session_id)
+
         payload = {
+            "user_id": user_id,
+            "session_id": session_id,
             "prompt": user_message,
             "max_tokens": settings.llm.max_tokens,
             "temperature": settings.llm.temperature,
             "top_p": settings.llm.top_p,
-            "include_chat_history": settings.llm.include_chat_history,
-            "context": settings.llm.context,
         }
 
         sentence_buffer = ""
@@ -102,11 +135,6 @@ class LLMService:
                 i += 2
                 continue
 
-            # Skip if contains code/system markers
-            if self._should_skip_line(text_part):
-                i += 2
-                continue
-
             punct = parts[i + 1] if i + 1 < len(parts) else ""
             sentence = text_part + punct
             if sentence.strip():
@@ -115,9 +143,5 @@ class LLMService:
 
         # Remaining incomplete text (no punctuation yet)
         remaining = parts[-1] if parts else ""
-
-        # Clean remaining to prevent corruption carryover
-        if remaining and self._should_skip_line(remaining):
-            remaining = ""
 
         return sentences, remaining

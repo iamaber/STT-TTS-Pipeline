@@ -142,7 +142,7 @@ async def stream_process(request: StreamingRequest) -> StreamingResponse:
 
 
 @app.post("/api/stream/reset", response_model=ResetResponse)
-async def stream_reset(session_id: str) -> ResetResponse:
+async def stream_reset(session_id: str, user_id: str = None) -> ResetResponse:
     """Reset or create a streaming session."""
     if session_id in streaming_sessions:
         streaming_sessions[session_id].reset()
@@ -152,8 +152,9 @@ async def stream_reset(session_id: str) -> ResetResponse:
     if conversation_manager:
         conversation_manager.clear_history()
 
-    if llm_service:
-        await llm_service.clear_memory()
+    # Clear specific session context in LLM
+    if llm_service and user_id:
+        await llm_service.clear_session(user_id, session_id)
 
     return ResetResponse(status="reset", session_id=session_id)
 
@@ -165,9 +166,12 @@ async def send_message(request: ConversationRequest) -> ConversationResponse:
     if not llm_service:
         return ConversationResponse(status="error", response_id=None, position=None)
 
+    # Auto-generate user_id from session_id if not provided
+    user_id = request.user_id or f"user_{request.session_id[:16]}"
+
     speaker_id = request.speaker_id or settings.tts.default_speaker_id
     queue_status = await conversation_manager.add_user_input(
-        request.text, request.session_id, speaker_id
+        request.text, request.session_id, speaker_id, user_id
     )
 
     if queue_status["status"] == "queued":
@@ -182,7 +186,9 @@ async def send_message(request: ConversationRequest) -> ConversationResponse:
     conversation_manager.current_response_id = response_id
 
     asyncio.create_task(
-        process_llm_streaming(request.text, speaker_id, response_id, request.session_id)
+        process_llm_streaming(
+            request.text, speaker_id, response_id, request.session_id, user_id
+        )
     )
 
     return ConversationResponse(
@@ -191,14 +197,17 @@ async def send_message(request: ConversationRequest) -> ConversationResponse:
 
 
 async def process_llm_streaming(
-    user_text: str, speaker_id: int, response_id: str, session_id: str
+    user_text: str, speaker_id: int, response_id: str, session_id: str, user_id: str
 ):
     """Process LLM streaming and queue TTS generation"""
     conversation_manager.is_processing = True
     conversation_manager.current_session_id = session_id
 
     try:
-        async for sentence in llm_service.generate(user_text):
+        # Pass user_id and session_id to LLM for context management
+        async for sentence in llm_service.generate(
+            user_text, user_id=user_id, session_id=session_id
+        ):
             # Clean sentence
             cleaned = sentence.strip()
             if cleaned.lower().startswith("assistant:"):
@@ -227,12 +236,16 @@ async def process_llm_streaming(
         next_speaker_id = (
             next_input.get("speaker_id") or settings.tts.default_speaker_id
         )
+        next_user_id = (
+            next_input.get("user_id") or f"user_{next_input['session_id'][:16]}"
+        )
         asyncio.create_task(
             process_llm_streaming(
                 next_input["text"],
                 next_speaker_id,
                 str(uuid.uuid4()),
                 next_input["session_id"],
+                next_user_id,
             )
         )
 

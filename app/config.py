@@ -29,7 +29,7 @@ class VADConfig(BaseSettings):
 
     threshold: float = 0.6
     min_speech_duration_ms: int = 250
-    min_silence_duration_ms: int = 250
+    min_silence_duration_ms: int = 300
 
 
 class StreamingConfig(BaseSettings):
@@ -41,15 +41,13 @@ class StreamingConfig(BaseSettings):
 
 
 class LLMConfig(BaseSettings):
-    """LLM configuration - Custom API"""
+    """LLM configuration - Custom Streaming API"""
 
     # Custom LLM API settings
-    api_url: str = "http://192.168.10.2:8000/api/stream"
+    api_url: str = "http://192.168.10.2:8000/api/chat/stream"
     max_tokens: int = 200
     temperature: float = 0.7
     top_p: float = 0.9
-    include_chat_history: bool = True
-    context: str = ""
 
 
 class QueueConfig(BaseSettings):
@@ -124,8 +122,15 @@ class ResetResponse(BaseModel):
 class ConversationRequest(BaseModel):
     """Request model for conversation with LLM"""
 
-    text: str = Field(..., description="User message text")
-    session_id: str = Field(..., description="Unique session identifier")
+    text: str = Field(..., description="User message text", min_length=1)
+    session_id: str = Field(
+        ..., description="Unique session identifier", min_length=1, max_length=100
+    )
+    user_id: str | None = Field(
+        None,
+        description="Unique user identifier (auto-generated from session_id if not provided)",
+        max_length=100,
+    )
     speaker_id: int | None = Field(None, description="TTS speaker ID (0-12799)")
 
 

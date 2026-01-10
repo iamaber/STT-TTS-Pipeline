@@ -14,12 +14,13 @@ class ConversationManager:
         self.current_session_id = None
 
     async def add_user_input(
-        self, text: str, session_id: str, speaker_id: int = None
+        self, text: str, session_id: str, speaker_id: int = None, user_id: str = None
     ) -> dict:
         """Add user input to queue."""
         input_item = {
             "text": text,
             "session_id": session_id,
+            "user_id": user_id,
             "speaker_id": speaker_id,
             "timestamp": datetime.now().isoformat(),
         }
