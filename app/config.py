@@ -29,7 +29,7 @@ class VADConfig(BaseSettings):
 
     threshold: float = 0.6
     min_speech_duration_ms: int = 250
-    min_silence_duration_ms: int = 300
+    min_silence_duration_ms: int = 250
 
 
 class StreamingConfig(BaseSettings):
@@ -45,7 +45,7 @@ class LLMConfig(BaseSettings):
 
     # Custom LLM API settings
     api_url: str = "http://192.168.10.2:8000/api/chat/stream"
-    max_tokens: int = 200
+    max_tokens: int = 150
     temperature: float = 0.7
     top_p: float = 0.9
 
